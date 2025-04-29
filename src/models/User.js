@@ -45,10 +45,15 @@ const UserSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Exam',
     },
+
   ],
-}, {
-  timestamps: true,
-});
+  resetPasswordToken: String,
+  resetPasswordExpire: Date,
+},
+
+  {
+    timestamps: true,
+  });
 
 // Hash password before saving
 UserSchema.pre('save', async function (next) {

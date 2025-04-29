@@ -17,7 +17,8 @@ const ExamSchema = new mongoose.Schema({
     ref: 'Topic'
   }],
   tags: [{
-    type: String
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tag'
   }],
   timeLimit: {
     type: Number,  // In minutes
@@ -35,7 +36,7 @@ const ExamSchema = new mongoose.Schema({
   },
   difficulty: {
     type: String,
-    enum: ['easy', 'medium', 'hard', 'mixed'],
+    enum: ['easy', 'medium', 'hard'],
     default: 'medium',
     required: true
   },
@@ -56,6 +57,15 @@ const ExamSchema = new mongoose.Schema({
   isActive: { // Trường để đánh dấu trạng thái
     type: Boolean,
     default: true
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  isPersonal: {
+    type: Boolean,
+    default: false
   }
   
 }, {
@@ -64,4 +74,5 @@ const ExamSchema = new mongoose.Schema({
 ExamSchema.index({ topics: 1 });
 ExamSchema.index({ isPremium: 1 });
 ExamSchema.index({ difficulty: 1 });
+ExamSchema.index({ createdBy: 1, isPersonal: 1 });
 module.exports = mongoose.model('Exam', ExamSchema);

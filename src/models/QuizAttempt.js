@@ -47,9 +47,33 @@ const QuizAttemptSchema = new mongoose.Schema({
       type: Number,
     }
   }],
+  tagPerformance: [{
+    tag: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Tag'
+    },
+    correctCount: {
+      type: Number,
+    },
+    totalCount: {
+      type: Number,
+    }
+  }],
   completed: {
     type: Boolean,
     default: true
+  },
+  startTime: {
+    type: Date,
+    default: Date.now
+  },
+  endTime: {
+    type: Date
+  },
+  status: {
+    type: String,
+    enum: ['in-progress', 'completed', 'expired'],
+    default: 'completed'
   }
 }, {
   timestamps: true

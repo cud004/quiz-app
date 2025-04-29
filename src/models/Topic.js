@@ -27,6 +27,15 @@ const TopicSchema = new mongoose.Schema({
     type: Boolean,
     default: true, // Hỗ trợ soft delete
   },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  isPersonal: {
+    type: Boolean,
+    default: false
+  }
 }, {
   timestamps: true,
 });
@@ -41,5 +50,6 @@ TopicSchema.methods.updateQuestionCount = async function () {
 
 // Chỉ mục bổ sung
 TopicSchema.index({ parentTopic: 1 }); // Tăng hiệu suất truy vấn theo parentTopic
+TopicSchema.index({ createdBy: 1, isPersonal: 1 });
 
 module.exports = mongoose.model('Topic', TopicSchema);

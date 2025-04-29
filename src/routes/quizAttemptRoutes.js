@@ -1,15 +1,17 @@
 const express = require('express');
 const quizAttemptController = require('../controllers/quizAttemptController');
+const auth = require('../middleware/auth');
+const adminAuth = require('../middleware/adminAuth');
 
 const router = express.Router();
 
-// Tạo một lần làm bài kiểm tra
-router.post('/', quizAttemptController.createQuizAttempt);
+// User routes (protected by auth) - Chỉ cho phép làm bài và xem kết quả
+router.post('/', auth, quizAttemptController.createQuizAttempt);
+router.get('/my-attempts', auth, quizAttemptController.getUserQuizAttempts);
+router.get('/:id', auth, quizAttemptController.getQuizAttemptById);
 
-// Lấy danh sách các lần làm bài kiểm tra của một người dùng
-router.get('/user/:userId', quizAttemptController.getQuizAttemptsByUser);
-
-// Lấy chi tiết một lần làm bài kiểm tra
-router.get('/:id', quizAttemptController.getQuizAttemptById);
+// Admin routes (protected by auth and adminAuth)
+router.get('/admin/all', auth, adminAuth, quizAttemptController.getAllQuizAttempts);
+router.delete('/admin/:id', auth, adminAuth, quizAttemptController.deleteQuizAttempt);
 
 module.exports = router;

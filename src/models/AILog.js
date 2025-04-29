@@ -24,5 +24,6 @@ const AILogSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
-
+AILogSchema.index({ user: 1 });
+AILogSchema.index({ type: 1 });
 module.exports = mongoose.model('AILog', AILogSchema);

@@ -1,11 +1,14 @@
 const QuizAttempt = require('../models/QuizAttempt');
 const Question = require('../models/Question');
 const Topic = require('../models/Topic');
+const Tag = require('../models/Tag');
+
 
 // Tạo một lần làm bài kiểm tra
 exports.createQuizAttempt = async ({ userId, examId, answers, timeTaken }) => {
     let score = 0;
     const topicPerformance = {};
+    const tagPerformance = {};
 
     for (const answer of answers) {
         const question = await Question.findById(answer.question);
@@ -37,6 +40,20 @@ exports.createQuizAttempt = async ({ userId, examId, answers, timeTaken }) => {
             topicPerformance[topicId].correctCount += 1;
         }
 
+        // Cập nhật hiệu suất theo tag
+        if (question.tags && question.tags.length > 0) {
+            for (const tag of question.tags) {
+                const tagId = tag._id.toString();
+                if (!tagPerformance[tagId]) {
+                    tagPerformance[tagId] = { correctCount: 0, totalCount: 0 };
+                }
+                tagPerformance[tagId].totalCount += 1;
+                if (isCorrect) {
+                    tagPerformance[tagId].correctCount += 1;
+                }
+            }
+        }
+
         // Ghi lại trạng thái đúng/sai và nội dung của `selectedOption`
         answer.isCorrect = isCorrect;
         answer.selectedOptionText = selectedOption.text;
@@ -55,6 +72,19 @@ exports.createQuizAttempt = async ({ userId, examId, answers, timeTaken }) => {
         })
     );
 
+    // Chuyển đổi hiệu suất theo tag thành mảng và thêm tên tag
+    const tagPerformanceArray = await Promise.all(
+        Object.keys(tagPerformance).map(async (tagId) => {
+            const tag = await Tag.findById(tagId);
+            return {
+                tag: tagId,
+                tagName: tag ? tag.name : 'Unknown Tag', // Thêm tên tag
+                correctCount: tagPerformance[tagId].correctCount,
+                totalCount: tagPerformance[tagId].totalCount,
+            };
+        })
+    );
+
     // Tạo QuizAttempt
     const quizAttempt = new QuizAttempt({
         user: userId,
@@ -65,6 +95,9 @@ exports.createQuizAttempt = async ({ userId, examId, answers, timeTaken }) => {
         timeTaken,
         topicPerformance: topicPerformanceArray,
         completed: true,
+        tagPerformance: tagPerformanceArray,
+        endTime: new Date(),
+        status: 'completed'
     });
 
     await quizAttempt.save();
@@ -101,6 +134,10 @@ exports.getQuizAttemptById = async (attemptId) => {
         })
         .populate({
             path: 'topicPerformance.topic',
+            select: 'name',
+        })
+        .populate({
+            path: 'tagPerformance.tag',
             select: 'name',
         });
 

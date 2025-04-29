@@ -25,7 +25,8 @@ const QuestionSchema = new mongoose.Schema({
     required: true
   },
   tags: [{
-    type: String
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tag'
   }],
   difficulty: {
     type: String,
@@ -43,6 +44,15 @@ const QuestionSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true,
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  isPersonal: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true
@@ -75,5 +85,6 @@ QuestionSchema.pre('save', function (next) {
 QuestionSchema.index({ topic: 1 });
 QuestionSchema.index({ tags: 1 });
 QuestionSchema.index({ difficulty: 1 });
+QuestionSchema.index({ createdBy: 1, isPersonal: 1 });
 
 module.exports = mongoose.model('Question', QuestionSchema);

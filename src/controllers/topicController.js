@@ -17,13 +17,18 @@ const handleError = (res, error) => {
   res.status(500).json({ errorCode: 'SERVER_ERROR', message: 'Server error', details: error.message });
 };
 
-// Create a new topic
+// Create a new topic (admin only)
 exports.createTopic = async (req, res) => {
   const { error } = topicSchema.validate(req.body);
   if (error) return res.status(400).json({ errorCode: 'VALIDATION_ERROR', message: error.details[0].message });
 
   try {
-    const topic = await topicService.createTopic(req.body);
+    const topicData = {
+      ...req.body,
+      createdBy: req.user._id,
+      isPersonal: false
+    };
+    const topic = await topicService.createTopic(topicData);
     res.status(201).json(topic);
   } catch (error) {
     handleError(res, error);
@@ -36,7 +41,14 @@ exports.getTopics = async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
 
   try {
-    const topics = await topicService.getTopics(page, limit);
+    // Tạo filters dựa trên query params
+    const filters = {
+      name: req.query.name,
+      // Nếu là admin và có yêu cầu xem tất cả, bao gồm cả inactive
+      includeInactive: req.user.role === 'admin' && req.query.includeInactive === 'true'
+    };
+    
+    const topics = await topicService.getTopics(page, limit, filters);
     res.json(topics);
   } catch (error) {
     handleError(res, error);

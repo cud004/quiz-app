@@ -6,20 +6,26 @@ const PaymentSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
-  exams: [
-    {
+  subscription: {
+    package: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Exam',
-      required: true
+      ref: 'SubscriptionPackage'
+    },
+    duration: {
+      type: Number,
+      min: 1
+    },
+    price: {
+      type: Number
     }
-  ],
-  amount: {
+  },
+  totalAmount: {
     type: Number,
     required: true
   },
   paymentMethod: {
     type: String,
-    enum: ['vnpay', 'momo', 'other'],
+    enum: ['vnpay', 'momo'],
     required: true
   },
   transactionId: {
@@ -30,13 +36,23 @@ const PaymentSchema = new mongoose.Schema({
     type: String,
     enum: ['pending', 'completed', 'failed', 'refunded'],
     default: 'pending'
+  },
+  transactionTime: {
+    type: Date,
+    default: Date.now
+  },
+  paymentDetails: {
+    type: Object,
+    default: {}
   }
 }, {
   timestamps: true
 });
 
+// Indexes
 PaymentSchema.index({ user: 1 });
 PaymentSchema.index({ status: 1 });
 PaymentSchema.index({ transactionId: 1 }, { unique: true });
+PaymentSchema.index({ transactionTime: 1 });
 
 module.exports = mongoose.model('Payment', PaymentSchema);

@@ -1,25 +1,58 @@
-const isProduction = process.env.NODE_ENV === 'production';
+const errorHandler = (err, req, res, next) => {
+  let error = { ...err };
+  error.message = err.message;
 
-module.exports = (err, req, res, next) => {
-  // Log chi tiết lỗi
-  console.error(`[${req.method}] ${req.url} - Error:`, {
-    errorCode: err.errorCode,
-    message: err.message,
-    stack: err.stack,
-    body: req.body,
-    params: req.params,
-    query: req.query
-  });
+  // Log to console for dev
+  console.error(err);
 
-  const statusCode = err.statusCode || 500;
-  const errorCode = err.errorCode || 'SERVER_ERROR';
-  const message = err.message || 'Something went wrong';
+  // Mongoose bad ObjectId
+  if (err.name === 'CastError') {
+    const message = `Resource not found`;
+    error = { message, statusCode: 404 };
+  }
 
-  // Trong môi trường production, ẩn thông tin nhạy cảm
-  res.status(statusCode).json({
+  // Mongoose duplicate key
+  if (err.code === 11000) {
+    const message = 'Duplicate field value entered';
+    error = { message, statusCode: 400 };
+  }
+
+  // Mongoose validation error
+  if (err.name === 'ValidationError') {
+    const message = Object.values(err.errors).map(val => val.message);
+    error = { message, statusCode: 400 };
+  }
+
+  // JWT errors
+  if (err.name === 'JsonWebTokenError') {
+    const message = 'Invalid token';
+    error = { message, statusCode: 401 };
+  }
+
+  if (err.name === 'TokenExpiredError') {
+    const message = 'Token expired';
+    error = { message, statusCode: 401 };
+  }
+
+  // Subscription errors
+  if (err.name === 'SubscriptionError') {
+    error = { message: err.message, statusCode: 403 };
+  }
+
+  // Exam access errors
+  if (err.name === 'ExamAccessError') {
+    error = { message: err.message, statusCode: 403 };
+  }
+
+  // Payment errors
+  if (err.name === 'PaymentError') {
+    error = { message: err.message, statusCode: 400 };
+  }
+
+  res.status(error.statusCode || 500).json({
     success: false,
-    errorCode,
-    message: isProduction ? 'An error occurred' : message,
-    ...(isProduction ? {} : { stack: err.stack })
+    message: error.message || 'Server Error'
   });
 };
+
+module.exports = errorHandler; 

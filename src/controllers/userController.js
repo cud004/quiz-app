@@ -1,91 +1,268 @@
-const Joi = require('joi');
-const userService = require('../services/userService');
+const UserService = require('../services/user/userService');
+const QuizAttempt = require('../models/QuizAttempt');
+const Exam = require('../models/Exam');
 
-// Schema validation
-const userSchema = Joi.object({
-  name: Joi.string().required(),
-  email: Joi.string().email().required(),
-  password: Joi.string().min(6).required(),
-  class: Joi.string().optional(),
-  profileImage: Joi.string().optional(),
-});
-
-const updateUserSchema = Joi.object({
-  name: Joi.string().optional(),
-  email: Joi.string().email().optional(),
-  class: Joi.string().optional(),
-  profileImage: Joi.string().optional(),
-});
-
-// Utility: Handle errors
-const handleError = (res, error) => {
-  if (error.message === 'Invalid ID format') {
-    return res.status(400).json({ errorCode: 'INVALID_ID', message: error.message });
-  }
-  if (error.message === 'User not found') {
-    return res.status(404).json({ errorCode: 'USER_NOT_FOUND', message: error.message });
-  }
-  if (error.message === 'Email already exists') {
-    return res.status(400).json({ errorCode: 'EMAIL_EXISTS', message: error.message });
-  }
-  res.status(500).json({ errorCode: 'SERVER_ERROR', message: 'Server error', details: error.message });
-};
-
-// Create a new user
-exports.createUser = async (req, res) => {
-  const { error } = userSchema.validate(req.body);
-  if (error) return res.status(400).json({ errorCode: 'VALIDATION_ERROR', message: error.details[0].message });
-
+// @desc    Get all users
+// @route   GET /api/users
+// @access  Private/Admin
+const getUsers = async (req, res) => {
   try {
-    const user = await userService.createUser(req.body);
-    res.status(201).json(user);
+    const users = await UserService.getAllUsers();
+
+    res.status(200).json({
+      success: true,
+      count: users.length,
+      data: users
+    });
   } catch (error) {
-    handleError(res, error);
+    console.error('Error in getUsers controller:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch users'
+    });
   }
 };
 
-// Get all users with pagination
-exports.getUsers = async (req, res) => {
-  const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 10;
-
+// @desc    Get single user
+// @route   GET /api/users/:id
+// @access  Private/Admin
+const getUser = async (req, res) => {
   try {
-    const users = await userService.getUsers(page, limit);
-    res.json(users);
+    const user = await UserService.getUserById(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      data: user
+    });
   } catch (error) {
-    handleError(res, error);
+    console.error('Error in getUser controller:', error);
+    if (error.message === 'User not found') {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch user'
+    });
   }
 };
 
-// Get a user by ID
-exports.getUserById = async (req, res) => {
+// @desc    Update user
+// @route   PUT /api/users/:id
+// @access  Private/Admin
+const updateUser = async (req, res) => {
   try {
-    const user = await userService.getUserById(req.params.id);
-    res.json(user);
+    const user = await UserService.updateUser(req.params.id, req.body);
+
+    res.status(200).json({
+      success: true,
+      data: user
+    });
   } catch (error) {
-    handleError(res, error);
+    console.error('Error in updateUser controller:', error);
+    if (error.message === 'User not found') {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to update user'
+    });
   }
 };
 
-// Update a user
-exports.updateUser = async (req, res) => {
-  const { error } = updateUserSchema.validate(req.body);
-  if (error) return res.status(400).json({ errorCode: 'VALIDATION_ERROR', message: error.details[0].message });
-
+// @desc    Delete user (soft delete)
+// @route   DELETE /api/users/:id
+// @access  Private/Admin
+const deleteUser = async (req, res) => {
   try {
-    const user = await userService.updateUser(req.params.id, req.body);
-    res.json(user);
+    await UserService.softDeleteUser(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      message: 'User deleted successfully'
+    });
   } catch (error) {
-    handleError(res, error);
+    console.error('Error in deleteUser controller:', error);
+    if (error.message === 'User not found') {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to delete user'
+    });
   }
 };
 
-// Delete a user
-exports.deleteUser = async (req, res) => {
+// @desc    Get deleted users
+// @route   GET /api/users/deleted
+// @access  Private/Admin
+const getDeletedUsers = async (req, res) => {
   try {
-    const result = await userService.deleteUser(req.params.id);
-    res.json(result);
+    const users = await UserService.getDeletedUsers();
+
+    res.status(200).json({
+      success: true,
+      count: users.length,
+      data: users
+    });
   } catch (error) {
-    handleError(res, error);
+    console.error('Error in getDeletedUsers controller:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch deleted users'
+    });
   }
 };
+
+// @desc    Hard delete user (permanent delete)
+// @route   DELETE /api/users/:id/hard
+// @access  Private/Admin
+const hardDeleteUser = async (req, res) => {
+  try {
+    await UserService.hardDeleteUser(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      message: 'User permanently deleted'
+    });
+  } catch (error) {
+    console.error('Error in hardDeleteUser controller:', error);
+    if (error.message === 'User not found') {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to delete user'
+    });
+  }
+};
+
+// @desc    Get user statistics
+// @route   GET /api/users/:id/stats
+// @access  Private/Admin
+const getUserStats = async (req, res) => {
+  try {
+    const stats = await UserService.getUserStats(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    console.error('Error in getUserStats controller:', error);
+    if (error.message === 'User not found') {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch user statistics'
+    });
+  }
+};
+
+// @desc    Update user preferences
+// @route   PUT /api/users/preferences
+// @access  Private
+const updatePreferences = async (req, res) => {
+  try {
+    const preferences = await UserService.updatePreferences(req.user.id, req.body);
+
+    res.status(200).json({
+      success: true,
+      data: preferences
+    });
+  } catch (error) {
+    console.error('Error in updatePreferences controller:', error);
+    if (error.message === 'User not found') {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to update preferences'
+    });
+  }
+};
+
+// @desc    Toggle favorite exam
+// @route   PUT /api/users/favorite-exam/:examId
+// @access  Private
+const toggleFavoriteExam = async (req, res) => {
+  try {
+    const result = await UserService.toggleFavoriteExam(req.user.id, req.params.examId);
+
+    res.status(200).json({
+      success: true,
+      message: result.isFavorite ? 'Exam added to favorites' : 'Exam removed from favorites',
+      data: result.favoriteExams
+    });
+  } catch (error) {
+    console.error('Error in toggleFavoriteExam controller:', error);
+    if (error.message === 'User not found' || error.message === 'Exam not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to toggle favorite exam'
+    });
+  }
+};
+
+// @desc    Restore deleted user
+// @route   PUT /api/users/:id/restore
+// @access  Private/Admin
+const restoreUser = async (req, res) => {
+  try {
+    const user = await UserService.restoreUser(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      message: 'User restored successfully',
+      data: user
+    });
+  } catch (error) {
+    console.error('Error in restoreUser controller:', error);
+    if (error.message === 'Deleted user not found') {
+      return res.status(404).json({
+        success: false,
+        message: 'Deleted user not found'
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to restore user'
+    });
+  }
+};
+
+module.exports = {
+  getUsers,
+  getUser,
+  updateUser,
+  deleteUser,
+  restoreUser,
+  getDeletedUsers,
+  hardDeleteUser,
+  getUserStats,
+  updatePreferences,
+  toggleFavoriteExam
+}; 

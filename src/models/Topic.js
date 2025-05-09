@@ -5,19 +5,23 @@ const TopicSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true,
-    trim: true, // Loại bỏ khoảng trắng thừa
-    minlength: 3, // Tên phải có ít nhất 3 ký tự
-    maxlength: 100, // Tên không được vượt quá 100 ký tự
+    trim: true,
+    minlength: 3,
+    maxlength: 100,
   },
   description: {
     type: String,
     trim: true,
-    maxlength: 500, // Mô tả không được vượt quá 500 ký tự
+    maxlength: 500,
   },
   parentTopic: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Topic',
     default: null,
+  },
+  order: {
+    type: Number,
+    default: 0
   },
   questionCount: {
     type: Number,
@@ -25,7 +29,7 @@ const TopicSchema = new mongoose.Schema({
   },
   isActive: {
     type: Boolean,
-    default: true, // Hỗ trợ soft delete
+    default: true,
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -35,6 +39,10 @@ const TopicSchema = new mongoose.Schema({
   isPersonal: {
     type: Boolean,
     default: false
+  },
+  performanceStats: {
+    totalAttempts: { type: Number, default: 0 },
+    correctRate: { type: Number, default: 0 }
   }
 }, {
   timestamps: true,
@@ -42,14 +50,16 @@ const TopicSchema = new mongoose.Schema({
 
 // Middleware: Cập nhật `questionCount` khi thêm hoặc xóa câu hỏi
 TopicSchema.methods.updateQuestionCount = async function () {
-  const Question = mongoose.model('Question'); // Import model Question
+  const Question = mongoose.model('Question');
   const count = await Question.countDocuments({ topic: this._id });
   this.questionCount = count;
   await this.save();
 };
 
-// Chỉ mục bổ sung
-TopicSchema.index({ parentTopic: 1 }); // Tăng hiệu suất truy vấn theo parentTopic
+// Indexes
+TopicSchema.index({ parentTopic: 1 });
 TopicSchema.index({ createdBy: 1, isPersonal: 1 });
+TopicSchema.index({ isActive: 1 });
+TopicSchema.index({ order: 1 });
 
 module.exports = mongoose.model('Topic', TopicSchema);

@@ -19,11 +19,18 @@ const AILogSchema = new mongoose.Schema({
     required: true
   },
   processingTime: {
-    type: Number  // in milliseconds
+    type: Number
+  },
+  status: {
+    type: String,
+    enum: ['success', 'failed', 'pending'],
+    default: 'success'
   }
 }, {
   timestamps: true
 });
+
 AILogSchema.index({ user: 1 });
 AILogSchema.index({ type: 1 });
+
 module.exports = mongoose.model('AILog', AILogSchema);

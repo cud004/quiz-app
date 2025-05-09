@@ -1,16 +1,35 @@
 const express = require('express');
 const router = express.Router();
-const userController = require('../controllers/userController');
-const auth = require('../middleware/auth');
-const adminAuth = require('../middleware/adminAuth');
+const {
+  getUsers,
+  getUser,
+  updateUser,
+  deleteUser,
+  restoreUser,
+  getDeletedUsers,
+  hardDeleteUser,
+  getUserStats,
+  updatePreferences,
+  toggleFavoriteExam
+} = require('../controllers/userController');
+const { protect, authorize } = require('../middleware/authMiddleware');
+const { validateUserUpdate } = require('../middleware/validation');
 
-// Routes chỉ dành cho admin
-router.post('/', auth, adminAuth, userController.createUser);
-router.get('/', auth, adminAuth, userController.getUsers);
+// Apply protect middleware to all routes
+router.use(protect);
 
-// Routes có thể truy cập bởi người dùng đã xác thực
-router.get('/:id', auth, userController.getUserById);
-router.put('/:id', auth, userController.updateUser);
-router.delete('/:id', auth, adminAuth, userController.deleteUser);
+// Admin only routes
+router.get('/', authorize('admin'), getUsers);
+router.get('/deleted', authorize('admin'), getDeletedUsers);
+router.get('/:id', authorize('admin'), getUser);
+router.put('/:id', authorize('admin'), updateUser);
+router.delete('/:id', authorize('admin'), deleteUser);
+router.put('/:id/restore', authorize('admin'), restoreUser);
+router.delete('/:id/hard', authorize('admin'), hardDeleteUser);
+router.get('/:id/stats', authorize('admin'), getUserStats);
 
-module.exports = router;
+// User routes (accessible by both users and admins)
+router.put('/preferences', updatePreferences);
+router.put('/favorite-exam/:examId', toggleFavoriteExam);
+
+module.exports = router; 

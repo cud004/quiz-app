@@ -1,21 +1,34 @@
 const rateLimit = require('express-rate-limit');
 
-const rateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 phút
-  max: 100, // Giới hạn 100 request mỗi IP
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 attempts
   message: {
-    errorCode: 'TOO_MANY_REQUESTS',
-    message: 'Too many requests from this IP, please try again after 15 minutes'
-  },
-  standardHeaders: true, // Trả về thông tin Rate Limit trong headers
-  legacyHeaders: false, // Disable các header cũ
-  handler: (req, res) => {
-    console.warn(`Rate limit exceeded for IP: ${req.ip}`);
-    res.status(429).json({
-      errorCode: 'TOO_MANY_REQUESTS',
-      message: 'Too many requests from this IP, please try again after 15 minutes'
-    });
+    success: false,
+    message: 'Too many login attempts, please try again after 15 minutes'
   }
 });
 
-module.exports = rateLimiter;
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // 3 attempts
+  message: {
+    success: false,
+    message: 'Too many registration attempts, please try again after 1 hour'
+  }
+});
+
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3, // 3 attempts
+  message: {
+    success: false,
+    message: 'Too many password reset attempts, please try again after 1 hour'
+  }
+});
+
+module.exports = {
+  loginLimiter,
+  registerLimiter,
+  forgotPasswordLimiter
+}; 

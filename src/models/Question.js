@@ -3,88 +3,80 @@ const mongoose = require('mongoose');
 const QuestionSchema = new mongoose.Schema({
   content: {
     type: String,
-    required: true,
-    unique: true // Đảm bảo nội dung câu hỏi là duy nhất
-  },
-  options: [{
-    text: {
-      type: String,
-      required: true
-    },
-    isCorrect: {
-      type: Boolean,
-      required: true
-    }
-  }],
-  explanation: {
-    type: String
-  },
-  topic: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Topic',
     required: true
   },
+  options: [{
+    type: String,
+    required: true
+  }],
+  correctAnswer: {
+    type: String,
+    required: true
+  },
+  explanation: {
+    type: String,
+    required: true
+  },
+  difficulty: {
+    type: String,
+    enum: ['easy', 'medium', 'hard'],
+    required: true
+  },
+  points: {
+    type: Number,
+    default: 1,
+    min: 1
+  },
+  topics: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Topic'
+  }],
   tags: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Tag'
   }],
-  difficulty: {
-    type: String,
-    enum: ['easy', 'medium', 'hard'],
-    default: 'medium'
-  },
-  incorrectAttempts: {
-    type: Number,
-    default: 0
-  },
-  totalAttempts: {
-    type: Number,
-    default: 0
-  },
-  isActive: {
-    type: Boolean,
-    default: true,
-  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
-  isPersonal: {
+  isActive: {
     type: Boolean,
-    default: false
+    default: true
+  },
+  usageCount: {
+    type: Number,
+    default: 0
+  },
+  stats: {
+    totalAttempts: { type: Number, default: 0 },
+    correctRate: { type: Number, default: 0 },
+    averageTimeSpent: { type: Number, default: 0 }
   }
 }, {
   timestamps: true
 });
 
-// Middleware kiểm tra tính hợp lệ của options
-QuestionSchema.pre('save', function (next) {
-  if (this.options.length < 2) {
-    return next(new Error('Options must have at least two items'));
-  }
-  const hasCorrectOption = this.options.some(option => option.isCorrect);
-  if (!hasCorrectOption) {
-    return next(new Error('At least one option must be marked as correct'));
-  }
-  const optionTexts = this.options.map(option => option.text);
-  if (new Set(optionTexts).size !== optionTexts.length) {
-    return next(new Error('Duplicate option texts are not allowed'));
-  }
-  next();
-});
-
-// Middleware kiểm tra tính hợp lệ của tags
-QuestionSchema.pre('save', function (next) {
-  if (this.tags && new Set(this.tags).size !== this.tags.length) {
-    return next(new Error('Duplicate tags are not allowed'));
-  }
-  next();
-});
-
-QuestionSchema.index({ topic: 1 });
+// Indexes
+QuestionSchema.index({ topics: 1 });
 QuestionSchema.index({ tags: 1 });
 QuestionSchema.index({ difficulty: 1 });
-QuestionSchema.index({ createdBy: 1, isPersonal: 1 });
+QuestionSchema.index({ createdBy: 1 });
+QuestionSchema.index({ isActive: 1 });
+QuestionSchema.index({ usageCount: -1 });
+QuestionSchema.index({ 'stats.correctRate': 1 });
+QuestionSchema.index({ 'stats.totalAttempts': -1 });
+
+// Text index cho tìm kiếm
+QuestionSchema.index({ 
+  content: 'text',
+  explanation: 'text'
+}, {
+  weights: {
+    content: 10,
+    explanation: 5
+  },
+  name: 'question_text_search'
+});
 
 module.exports = mongoose.model('Question', QuestionSchema);

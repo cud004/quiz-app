@@ -1,18 +1,32 @@
 const express = require('express');
 const router = express.Router();
-const authController = require('../controllers/authController');
-const auth = require('../middleware/auth');
+const {
+  register,
+  login,
+  getMe,
+  updateProfile,
+  updatePassword,
+  forgotPassword,
+  resetPassword,
+  logout,
+  registerAdmin
+} = require('../controllers/authController');
+const { protect } = require('../middleware/authMiddleware');
 
-// Đăng ký người dùng mới
-router.post('/register', authController.register);
+// Public routes
+router.post('/register', register);
+router.post('/login', login);
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password/:resetToken', resetPassword);
 
-// Đăng nhập
-router.post('/login', authController.login);
+// Protected routes
+router.use(protect);
+router.get('/me', getMe);
+router.put('/profile', updateProfile);
+router.put('/password', updatePassword);
+router.post('/logout', logout);
 
-// Đổi mật khẩu (yêu cầu xác thực)
-router.post('/change-password', auth, authController.changePassword);
+// Admin registration (protected by secret key)
+router.post('/register-admin', registerAdmin);
 
-// Lấy thông tin người dùng hiện tại (yêu cầu xác thực)
-router.get('/me', auth, authController.getCurrentUser);
-
-module.exports = router;
+module.exports = router; 

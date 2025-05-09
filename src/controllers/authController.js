@@ -1,225 +1,435 @@
-const jwt = require('jsonwebtoken');
-const Joi = require('joi');
 const User = require('../models/User');
+const AuthService = require('../services/auth/authService');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
-// Schema validation
-const registerSchema = Joi.object({
-  name: Joi.string().required(),
-  email: Joi.string().email().required(),
-  password: Joi.string().min(6).required(),
-  class: Joi.string().optional(),
-  profileImage: Joi.string().optional(),
-  adminCode: Joi.string().optional()
-});
+// Generate JWT Token
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRE
+  });
+};
 
-const loginSchema = Joi.object({
-  email: Joi.string().email().required(),
-  password: Joi.string().required()
-});
-
-const changePasswordSchema = Joi.object({
-  currentPassword: Joi.string().required(),
-  newPassword: Joi.string().min(6).required()
-});
-
-/**
- * Đăng ký người dùng mới
- * @route POST /api/auth/register
- */
-exports.register = async (req, res) => {
+// @desc    Register user
+// @route   POST /api/auth/register
+// @access  Public
+const register = async (req, res) => {
   try {
-    // Validate input
-    const { error } = registerSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ 
-        errorCode: 'VALIDATION_ERROR', 
-        message: error.details[0].message 
+    const { name, email, password, role } = req.body;
+
+    // Check if user exists
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({
+        success: false,
+        message: 'User already exists'
       });
     }
 
-    // Kiểm tra email đã tồn tại chưa
-    const existingUser = await User.findOne({ email: req.body.email });
-    if (existingUser) {
-      return res.status(400).json({ 
-        errorCode: 'EMAIL_EXISTS', 
-        message: 'Email already exists' 
-      });
-    }
-
-    // Xác định role (mặc định là student)
-    let role = 'student';
-    
-    // Nếu có adminCode và đúng, set role là admin
-    // Trong thực tế, adminCode nên được lưu trong biến môi trường
-    if (req.body.adminCode === 'admin123') {
-      role = 'admin';
-    }
-
-    // Tạo người dùng mới
-    const user = new User({
-      name: req.body.name,
-      email: req.body.email,
-      password: req.body.password, // Password sẽ được hash trong model
-      class: req.body.class,
-      profileImage: req.body.profileImage,
-      role: role,
-      isActive: true
+    // Create user
+    const user = await User.create({
+      name,
+      email,
+      password,
+      role: role || 'user',
+      status: 'active',
+      isActive: true,
+      preferences: {
+        theme: 'system',
+        language: 'vi',
+        notifications: {
+          email: true,
+          push: true
+        }
+      }
     });
 
-    // Lưu vào database
+    // Generate token
+    const token = generateToken(user._id);
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        preferences: user.preferences
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// @desc    Login user
+// @route   POST /api/auth/login
+// @access  Public
+const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Check for user
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    // Check if user is active
+    if (!user.isActive || user.status !== 'active') {
+      return res.status(401).json({
+        success: false,
+        message: 'Your account is inactive. Please contact support.'
+      });
+    }
+
+    // Check if password matches
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    // Update last login
+    user.lastLogin = Date.now();
+    user.lastActive = Date.now();
     await user.save();
 
-    // Tạo JWT token
-    const token = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    // Trả về thông tin người dùng (không bao gồm password)
-    const userResponse = {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      class: user.class,
-      profileImage: user.profileImage,
-      role: user.role,
-      token: token
-    };
-
-    res.status(201).json(userResponse);
-  } catch (error) {
-    res.status(500).json({ 
-      errorCode: 'SERVER_ERROR', 
-      message: error.message 
-    });
-  }
-};
-
-/**
- * Đăng nhập
- * @route POST /api/auth/login
- */
-exports.login = async (req, res) => {
-  try {
-    // Validate input
-    const { error } = loginSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ 
-        errorCode: 'VALIDATION_ERROR', 
-        message: error.details[0].message 
-      });
-    }
-
-    // Tìm người dùng theo email
-    const user = await User.findOne({ email: req.body.email });
-    if (!user) {
-      return res.status(401).json({ 
-        errorCode: 'INVALID_CREDENTIALS', 
-        message: 'Invalid email or password' 
-      });
-    }
-
-    // Kiểm tra người dùng có active không
-    if (!user.isActive) {
-      return res.status(401).json({ 
-        errorCode: 'ACCOUNT_INACTIVE', 
-        message: 'Account is inactive' 
-      });
-    }
-
-    // Kiểm tra mật khẩu
-    const isMatch = await user.matchPassword(req.body.password);
-    if (!isMatch) {
-      return res.status(401).json({ 
-        errorCode: 'INVALID_CREDENTIALS', 
-        message: 'Invalid email or password' 
-      });
-    }
-
-    // Tạo token
-    const token = jwt.sign(
-      { userId: user._id },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    // Trả về thông tin người dùng (không bao gồm password)
-    const userObject = user.toObject();
-    delete userObject.password;
+    // Generate token
+    const token = generateToken(user._id);
 
     res.json({
-      user: userObject,
-      token
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        preferences: user.preferences,
+        subscription: user.subscription
+      }
     });
   } catch (error) {
-    res.status(500).json({ 
-      errorCode: 'SERVER_ERROR', 
-      message: error.message 
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };
 
-/**
- * Đổi mật khẩu
- * @route POST /api/auth/change-password
- */
-exports.changePassword = async (req, res) => {
+// @desc    Get current logged in user
+// @route   GET /api/auth/me
+// @access  Private
+const getMe = async (req, res) => {
   try {
-    // Validate input
-    const { error } = changePasswordSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ 
-        errorCode: 'VALIDATION_ERROR', 
-        message: error.details[0].message 
-      });
-    }
+    const user = await User.findById(req.user.id)
+      .select('-password')
+      .populate('subscription.package');
 
-    // Lấy người dùng từ middleware auth
-    const user = req.user;
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        preferences: user.preferences,
+        subscription: user.subscription,
+        learningStats: user.learningStats,
+        examHistory: user.examHistory
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
 
-    // Kiểm tra mật khẩu hiện tại
+// @desc    Update user profile
+// @route   PUT /api/auth/profile
+// @access  Private
+const updateProfile = async (req, res) => {
+  try {
+    const fieldsToUpdate = {
+      name: req.body.name,
+      email: req.body.email,
+      profileImage: req.body.profileImage,
+      preferences: req.body.preferences
+    };
+
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      fieldsToUpdate,
+      {
+        new: true,
+        runValidators: true
+      }
+    ).select('-password');
+
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        preferences: user.preferences,
+        profileImage: user.profileImage
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// @desc    Update password
+// @route   PUT /api/auth/password
+// @access  Private
+const updatePassword = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+
+    // Check current password
     const isMatch = await user.matchPassword(req.body.currentPassword);
     if (!isMatch) {
-      return res.status(400).json({ 
-        errorCode: 'INVALID_PASSWORD', 
-        message: 'Current password is incorrect' 
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect'
       });
     }
 
-    // Cập nhật mật khẩu mới
     user.password = req.body.newPassword;
     await user.save();
 
-    res.json({ 
-      message: 'Password updated successfully' 
+    res.json({
+      success: true,
+      message: 'Password updated successfully'
     });
   } catch (error) {
-    res.status(500).json({ 
-      errorCode: 'SERVER_ERROR', 
-      message: error.message 
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };
 
-/**
- * Lấy thông tin người dùng hiện tại
- * @route GET /api/auth/me
- */
-exports.getCurrentUser = async (req, res) => {
+// @desc    Forgot password
+// @route   POST /api/auth/forgot-password
+// @access  Public
+const forgotPassword = async (req, res) => {
   try {
-    // Lấy người dùng từ middleware auth
-    const user = req.user;
+    const user = await User.findOne({ email: req.body.email });
 
-    // Trả về thông tin người dùng (không bao gồm password)
-    const userObject = user.toObject();
-    delete userObject.password;
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
 
-    res.json({ user: userObject });
+    // Generate reset token
+    const resetToken = crypto.randomBytes(20).toString('hex');
+
+    // Hash token and set to resetPasswordToken field
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(resetToken)
+      .digest('hex');
+
+    console.log('Generated Reset Token:', resetToken);
+    console.log('Hashed Token:', hashedToken);
+
+    user.resetPasswordToken = hashedToken;
+    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    await user.save();
+
+    // For local testing, return the token in response
+    res.json({
+      success: true,
+      message: 'Password reset token (for testing)',
+      resetToken,
+      resetUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${resetToken}`
+    });
   } catch (error) {
-    res.status(500).json({ 
-      errorCode: 'SERVER_ERROR', 
-      message: error.message 
+    console.error('Forgot password error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
+};
+
+// @desc    Reset password
+// @route   POST /api/auth/reset-password/:resetToken
+// @access  Public
+const resetPassword = async (req, res) => {
+  try {
+    // Get hashed token
+    const resetPasswordToken = crypto
+      .createHash('sha256')
+      .update(req.params.resetToken)
+      .digest('hex');
+
+    console.log('Reset Token from request:', req.params.resetToken);
+    console.log('Hashed Token:', resetPasswordToken);
+
+    const user = await User.findOne({
+      resetPasswordToken,
+      resetPasswordExpire: { $gt: Date.now() }
+    });
+
+    console.log('Found user:', user ? 'Yes' : 'No');
+    if (user) {
+      console.log('Token expire time:', new Date(user.resetPasswordExpire));
+      console.log('Current time:', new Date());
+    }
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired token'
+      });
+    }
+
+    // Set new password
+    user.password = req.body.password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+    await user.save();
+
+    // Generate new JWT token
+    const token = generateToken(user._id);
+
+    res.json({
+      success: true,
+      message: 'Password reset successful',
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// @desc    Logout user
+// @route   POST /api/auth/logout
+// @access  Private
+const logout = async (req, res) => {
+  try {
+    // Update last active time
+    await User.findByIdAndUpdate(req.user.id, {
+      lastActive: Date.now()
+    });
+
+    res.json({
+      success: true,
+      message: 'Logged out successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// @desc    Register admin (protected by secret key)
+// @route   POST /api/auth/register-admin
+// @access  Private/SuperAdmin
+const registerAdmin = async (req, res) => {
+  try {
+    const { name, email, password, secretKey } = req.body;
+
+    // Verify secret key
+    if (secretKey !== process.env.ADMIN_SECRET_KEY) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid secret key'
+      });
+    }
+
+    // Check if user exists
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({
+        success: false,
+        message: 'User already exists'
+      });
+    }
+
+    // Create admin user
+    const admin = await User.create({
+      name,
+      email,
+      password,
+      role: 'admin',
+      status: 'active',
+      isActive: true,
+      preferences: {
+        theme: 'system',
+        language: 'vi',
+        notifications: {
+          email: true,
+          push: true
+        }
+      }
+    });
+
+    // Generate token
+    const token = generateToken(admin._id);
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: {
+        id: admin._id,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+        preferences: admin.preferences
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+module.exports = {
+  register,
+  login,
+  getMe,
+  updateProfile,
+  updatePassword,
+  forgotPassword,
+  resetPassword,
+  logout,
+  registerAdmin
 };

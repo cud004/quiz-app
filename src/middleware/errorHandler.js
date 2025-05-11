@@ -1,8 +1,13 @@
+const ApiResponse = require('../utils/apiResponse');
+
+/**
+ * Global error handling middleware
+ */
 const errorHandler = (err, req, res, next) => {
   let error = { ...err };
   error.message = err.message;
 
-  // Log to console for dev
+  // Log for development
   console.error(err);
 
   // Mongoose bad ObjectId
@@ -34,25 +39,24 @@ const errorHandler = (err, req, res, next) => {
     error = { message, statusCode: 401 };
   }
 
-  // Subscription errors
+  // Application-specific errors
   if (err.name === 'SubscriptionError') {
     error = { message: err.message, statusCode: 403 };
   }
 
-  // Exam access errors
   if (err.name === 'ExamAccessError') {
     error = { message: err.message, statusCode: 403 };
   }
 
-  // Payment errors
   if (err.name === 'PaymentError') {
     error = { message: err.message, statusCode: 400 };
   }
 
-  res.status(error.statusCode || 500).json({
-    success: false,
-    message: error.message || 'Server Error'
-  });
+  return ApiResponse.error(
+    res, 
+    error.message || 'Server Error',
+    error.statusCode || 500
+  );
 };
 
 module.exports = errorHandler; 

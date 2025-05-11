@@ -2,11 +2,10 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 const hpp = require('hpp');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
-const errorHandler = require('./middleware/errorHandler');
+const { errorHandler, apiLimiter } = require('./middleware');
 
 // Load env vars
 require('dotenv').config();
@@ -14,11 +13,26 @@ require('dotenv').config();
 // Route files
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
+const topicRoutes = require('./routes/topicRoutes');
+const tagRoutes = require('./routes/tagRoutes');
+const questionRoutes = require('./routes/questionRoutes');
+const examRoutes = require('./routes/examRoutes');
+const quizAttemptRoutes = require('./routes/quizAttemptRoutes');
+const userPerformanceRoutes = require('./routes/userPerformanceRoutes');
+const examRecommendationRoutes = require('./routes/examRecommendationRoutes');
+const learningPathRoutes = require('./routes/learningPathRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
+const subscriptionRoutes = require('./routes/subscriptionRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
+// Tạm thời comment lại các routes có thể gây lỗi
+// const momoRoutes = require('./routes/momoRoutes');
+// const vnpayRoutes = require('./routes/vnpayRoutes');
 
 const app = express();
 
 // Body parser
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 // Cookie parser
 app.use(cookieParser());
@@ -31,12 +45,8 @@ if (process.env.NODE_ENV === 'development') {
 // Set security headers
 app.use(helmet());
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
-});
-app.use(limiter);
+// Global rate limiting
+app.use(apiLimiter);
 
 // Prevent http param pollution
 app.use(hpp());
@@ -50,15 +60,29 @@ app.use(compression());
 // Mount routers
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/topics', topicRoutes);
+app.use('/api/tags', tagRoutes);
+app.use('/api/questions', questionRoutes);
+app.use('/api/exams', examRoutes);
+app.use('/api/quiz-attempts', quizAttemptRoutes);
+app.use('/api/performance', userPerformanceRoutes);
+app.use('/api/recommendations', examRecommendationRoutes);
+app.use('/api/learning-paths', learningPathRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/payments', paymentRoutes);
+// Tạm thời comment lại các routes có thể gây lỗi
+// app.use('/api/payments/momo', momoRoutes);
+// app.use('/api/payments/vnpay', vnpayRoutes);
 
 // Error handler
 app.use(errorHandler);
 
 // Handle 404
-app.use((req, res) => {
+app.use((req, res, next) => {
   res.status(404).json({
     success: false,
-    message: 'Route not found'
+    message: `Route not found: ${req.originalUrl}`
   });
 });
 

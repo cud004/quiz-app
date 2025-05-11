@@ -52,8 +52,6 @@ TagSchema.pre('save', function(next) {
 });
 
 // Indexes
-TagSchema.index({ name: 1 });
-TagSchema.index({ slug: 1 });
 TagSchema.index({ usageCount: -1 });
 TagSchema.index({ isActive: 1 });
 TagSchema.index({ category: 1 });

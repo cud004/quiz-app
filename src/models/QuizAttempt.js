@@ -54,6 +54,10 @@ const QuizAttemptSchema = new mongoose.Schema({
     enum: ['in_progress', 'completed', 'abandoned'],
     default: 'in_progress'
   },
+  autoCompleted: {
+    type: Boolean,
+    default: false
+  },
   topicPerformance: [{
     topic: {
       type: mongoose.Schema.Types.ObjectId,

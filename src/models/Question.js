@@ -3,24 +3,32 @@ const mongoose = require('mongoose');
 const QuestionSchema = new mongoose.Schema({
   content: {
     type: String,
-    required: true
+    required: [true, 'Please add a question content'],
+    trim: true
   },
   options: [{
-    type: String,
-    required: true
+    label: {
+      type: String,
+      required: true
+    },
+    text: {
+      type: String,
+      required: true
+    }
   }],
   correctAnswer: {
     type: String,
-    required: true
+    required: [true, 'Please specify the correct answer'],
+    trim: true
   },
   explanation: {
     type: String,
-    required: true
+    trim: true
   },
   difficulty: {
     type: String,
     enum: ['easy', 'medium', 'hard'],
-    required: true
+    default: 'medium'
   },
   points: {
     type: Number,
@@ -49,9 +57,18 @@ const QuestionSchema = new mongoose.Schema({
     default: 0
   },
   stats: {
-    totalAttempts: { type: Number, default: 0 },
-    correctRate: { type: Number, default: 0 },
-    averageTimeSpent: { type: Number, default: 0 }
+    totalAttempts: {
+      type: Number,
+      default: 0
+    },
+    correctRate: {
+      type: Number,
+      default: 0
+    },
+    averageTimeSpent: {
+      type: Number,
+      default: 0
+    }
   }
 }, {
   timestamps: true
@@ -70,11 +87,13 @@ QuestionSchema.index({ 'stats.totalAttempts': -1 });
 // Text index cho tìm kiếm
 QuestionSchema.index({ 
   content: 'text',
-  explanation: 'text'
+  explanation: 'text',
+  'options.text': 'text'
 }, {
   weights: {
     content: 10,
-    explanation: 5
+    explanation: 5,
+    'options.text': 3
   },
   name: 'question_text_search'
 });

@@ -11,22 +11,37 @@ const {
   logout,
   registerAdmin
 } = require('../controllers/authController');
-const { protect } = require('../middleware/authMiddleware');
+const { 
+  protect, 
+  validateRequest,
+  loginLimiter,
+  registerLimiter,
+  forgotPasswordLimiter
+} = require('../middleware');
+const {
+  registerValidation,
+  loginValidation,
+  updateProfileValidation,
+  updatePasswordValidation,
+  forgotPasswordValidation,
+  resetPasswordValidation,
+  oauthLoginValidation
+} = require('../validations/authValidation');
 
 // Public routes
-router.post('/register', register);
-router.post('/login', login);
-router.post('/forgot-password', forgotPassword);
-router.post('/reset-password/:resetToken', resetPassword);
+router.post('/register', registerLimiter, validateRequest(registerValidation), register);
+router.post('/login', loginLimiter, validateRequest(loginValidation), login);
+router.post('/forgot-password', forgotPasswordLimiter, validateRequest(forgotPasswordValidation), forgotPassword);
+router.post('/reset-password/:resetToken', validateRequest(resetPasswordValidation), resetPassword);
 
 // Protected routes
 router.use(protect);
 router.get('/me', getMe);
-router.put('/profile', updateProfile);
-router.put('/password', updatePassword);
+router.put('/profile', validateRequest(updateProfileValidation), updateProfile);
+router.put('/password', validateRequest(updatePasswordValidation), updatePassword);
 router.post('/logout', logout);
 
 // Admin registration (protected by secret key)
-router.post('/register-admin', registerAdmin);
+router.post('/register-admin', validateRequest(registerValidation), registerAdmin);
 
 module.exports = router; 

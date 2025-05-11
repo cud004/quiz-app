@@ -1,6 +1,11 @@
 const rateLimit = require('express-rate-limit');
 
-const loginLimiter = rateLimit({
+/**
+ * Rate limiters for various API endpoints
+ */
+
+// Auth rate limiters
+exports.loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5, // 5 attempts
   message: {
@@ -9,16 +14,16 @@ const loginLimiter = rateLimit({
   }
 });
 
-const registerLimiter = rateLimit({
+exports.registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10, // 3 attempts
+  max: 10, // 10 attempts
   message: {
     success: false,
     message: 'Too many registration attempts, please try again after 1 hour'
   }
 });
 
-const forgotPasswordLimiter = rateLimit({
+exports.forgotPasswordLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3, // 3 attempts
   message: {
@@ -27,8 +32,12 @@ const forgotPasswordLimiter = rateLimit({
   }
 });
 
-module.exports = {
-  loginLimiter,
-  registerLimiter,
-  forgotPasswordLimiter
-}; 
+// General API rate limiter
+exports.apiLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 100, // 100 requests per windowMs
+  message: {
+    success: false,
+    message: 'Too many requests, please try again later'
+  }
+}); 

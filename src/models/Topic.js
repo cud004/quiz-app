@@ -19,6 +19,15 @@ const TopicSchema = new mongoose.Schema({
     ref: 'Topic',
     default: null,
   },
+  category: {
+    type: String,
+    trim: true,
+    maxlength: 50,
+  },
+  difficulty: {
+    type: String,
+    enum: ['beginner', 'intermediate', 'advanced'],
+  },
   order: {
     type: Number,
     default: 0
@@ -61,5 +70,7 @@ TopicSchema.index({ parentTopic: 1 });
 TopicSchema.index({ createdBy: 1, isPersonal: 1 });
 TopicSchema.index({ isActive: 1 });
 TopicSchema.index({ order: 1 });
+TopicSchema.index({ category: 1 });
+TopicSchema.index({ difficulty: 1 });
 
 module.exports = mongoose.model('Topic', TopicSchema);

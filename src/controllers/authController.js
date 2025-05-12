@@ -2,6 +2,7 @@ const User = require('../models/User');
 const AuthService = require('../services/auth/authService');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const ApiResponse = require('../utils/apiResponse');
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -20,10 +21,7 @@ const register = async (req, res) => {
     // Check if user exists
     const userExists = await User.findOne({ email });
     if (userExists) {
-      return res.status(400).json({
-        success: false,
-        message: 'User already exists'
-      });
+      return ApiResponse.badRequest(res, 'User already exists');
     }
 
     // Create user
@@ -47,22 +45,31 @@ const register = async (req, res) => {
     // Generate token
     const token = generateToken(user._id);
 
-    res.status(201).json({
-      success: true,
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        preferences: user.preferences
-      }
-    });
+    // Gửi email chào mừng
+    try {
+      await AuthService.sendWelcomeEmail(user.email, user.name);
+    } catch (emailError) {
+      console.error('Lỗi gửi email chào mừng:', emailError);
+      // Không trả về lỗi vì đăng ký vẫn thành công
+    }
+
+    return ApiResponse.success(
+      res,
+      {
+        token,
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          preferences: user.preferences
+        }
+      },
+      'User registered successfully',
+      201
+    );
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return ApiResponse.error(res, error.message);
   }
 };
 
@@ -76,27 +83,18 @@ const login = async (req, res) => {
     // Check for user
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
+      return ApiResponse.unauthorized(res, 'Invalid credentials');
     }
 
     // Check if user is active
     if (!user.isActive || user.status !== 'active') {
-      return res.status(401).json({
-        success: false,
-        message: 'Your account is inactive. Please contact support.'
-      });
+      return ApiResponse.unauthorized(res, 'Your account is inactive. Please contact support.');
     }
 
     // Check if password matches
     const isMatch = await user.matchPassword(password);
     if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
+      return ApiResponse.unauthorized(res, 'Invalid credentials');
     }
 
     // Update last login
@@ -107,23 +105,23 @@ const login = async (req, res) => {
     // Generate token
     const token = generateToken(user._id);
 
-    res.json({
-      success: true,
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        preferences: user.preferences,
-        subscription: user.subscription
-      }
-    });
+    return ApiResponse.success(
+      res,
+      {
+        token,
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          preferences: user.preferences,
+          subscription: user.subscription
+        }
+      },
+      'Login successful'
+    );
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return ApiResponse.error(res, error.message);
   }
 };
 
@@ -136,24 +134,24 @@ const getMe = async (req, res) => {
       .select('-password')
       .populate('subscription.package');
 
-    res.json({
-      success: true,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        preferences: user.preferences,
-        subscription: user.subscription,
-        learningStats: user.learningStats,
-        examHistory: user.examHistory
-      }
-    });
+    return ApiResponse.success(
+      res,
+      {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          preferences: user.preferences,
+          subscription: user.subscription,
+          learningStats: user.learningStats,
+          examHistory: user.examHistory
+        }
+      },
+      'User profile retrieved successfully'
+    );
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return ApiResponse.error(res, error.message);
   }
 };
 
@@ -236,10 +234,7 @@ const forgotPassword = async (req, res) => {
     const user = await User.findOne({ email: req.body.email });
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return ApiResponse.notFound(res, 'User not found');
     }
 
     // Generate reset token
@@ -251,88 +246,84 @@ const forgotPassword = async (req, res) => {
       .update(resetToken)
       .digest('hex');
 
-    console.log('Generated Reset Token:', resetToken);
-    console.log('Hashed Token:', hashedToken);
-
+    // Lưu token đã hash và thời gian hết hạn
     user.resetPasswordToken = hashedToken;
     user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
 
     await user.save();
 
-    // For local testing, return the token in response
-    res.json({
-      success: true,
-      message: 'Password reset token (for testing)',
-      resetToken,
-      resetUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${resetToken}`
-    });
+    try {
+      // Gửi email đặt lại mật khẩu
+      await AuthService.sendPasswordResetEmail(user.email, resetToken);
+      
+      return ApiResponse.success(
+        res, 
+        null, 
+        'Đã gửi email hướng dẫn đặt lại mật khẩu. Vui lòng kiểm tra hộp thư của bạn.'
+      );
+    } catch (emailError) {
+      console.error('Lỗi gửi email:', emailError);
+      
+      // Nếu môi trường là development, trả về token để test
+      if (process.env.NODE_ENV === 'development') {
+        return ApiResponse.success(
+          res, 
+          {
+            resetToken,
+            resetUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${resetToken}`
+          },
+          'Email không gửi được. Token đặt lại mật khẩu (chỉ dùng cho testing)'
+        );
+      } else {
+        // Trong môi trường production, không trả về token nhưng thông báo lỗi
+        return ApiResponse.error(
+          res, 
+          'Không thể gửi email đặt lại mật khẩu. Vui lòng thử lại sau.',
+          500
+        );
+      }
+    }
   } catch (error) {
     console.error('Forgot password error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return ApiResponse.error(res, error.message, 500);
   }
 };
 
 // @desc    Reset password
-// @route   POST /api/auth/reset-password/:resetToken
+// @route   PUT /api/auth/reset-password/:token
 // @access  Public
 const resetPassword = async (req, res) => {
   try {
-    // Get hashed token
+    // Hash token from params
     const resetPasswordToken = crypto
       .createHash('sha256')
-      .update(req.params.resetToken)
+      .update(req.params.token)
       .digest('hex');
-
-    console.log('Reset Token from request:', req.params.resetToken);
-    console.log('Hashed Token:', resetPasswordToken);
 
     const user = await User.findOne({
       resetPasswordToken,
       resetPasswordExpire: { $gt: Date.now() }
     });
 
-    console.log('Found user:', user ? 'Yes' : 'No');
-    if (user) {
-      console.log('Token expire time:', new Date(user.resetPasswordExpire));
-      console.log('Current time:', new Date());
-    }
-
     if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid or expired token'
-      });
+      return ApiResponse.badRequest(res, 'Invalid or expired token');
     }
 
     // Set new password
     user.password = req.body.password;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
+
     await user.save();
 
-    // Generate new JWT token
-    const token = generateToken(user._id);
-
-    res.json({
-      success: true,
-      message: 'Password reset successful',
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role
-      }
-    });
+    return ApiResponse.success(
+      res,
+      null,
+      'Mật khẩu đã được đặt lại thành công'
+    );
   } catch (error) {
     console.error('Reset password error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    return ApiResponse.error(res, error.message, 500);
   }
 };
 

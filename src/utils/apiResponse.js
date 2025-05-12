@@ -62,6 +62,15 @@ class ApiResponse {
   }
 
   /**
+   * Trả về lỗi bad request (400)
+   * @param {string} message - Thông báo lỗi
+   * @param {array} errors - Chi tiết lỗi
+   */
+  static badRequest(res, message = 'Bad request', errors = null) {
+    return this.error(res, message, 400, errors);
+  }
+
+  /**
    * Trả về lỗi không tìm thấy
    * @param {string} message - Thông báo lỗi
    */

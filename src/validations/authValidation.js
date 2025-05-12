@@ -131,7 +131,7 @@ const resetPasswordSchema = Joi.object({
 
 // Reset token param schema
 const resetTokenParamSchema = Joi.object({
-  resetToken: Joi.string().required()
+  token: Joi.string().required()
     .messages({
       'any.required': 'Reset token is required'
     })

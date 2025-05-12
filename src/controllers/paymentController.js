@@ -1,7 +1,7 @@
 const paymentService = require('../services/paymentService');
-// Tạm thời comment lại các reference có thể gây lỗi
-// const vnpayService = require('../services/vnpayService');
-// const momoService = require('../services/momoService');
+// Bỏ comment các service thanh toán
+const vnpayService = require('../services/vnpayService');
+const momoService = require('../services/momoService');
 const ApiResponse = require('../utils/apiResponse');
 
 const paymentController = {
@@ -27,15 +27,7 @@ const paymentController = {
         bankCode: bankCode // Thêm bankCode cho VNPay
       };
       
-      // Tạm thời trả về thông báo đang phát triển
-      return ApiResponse.success(res, {
-        success: true,
-        message: 'Chức năng thanh toán đang được phát triển',
-        paymentMethod,
-        options
-      });
-      
-      /* Tạm thời comment lại code gọi service
+      // Kích hoạt tính năng thanh toán
       let result;
       
       if (paymentMethod === 'vnpay') {
@@ -47,7 +39,6 @@ const paymentController = {
       }
       
       return ApiResponse.success(res, result);
-      */
     } catch (error) {
       return ApiResponse.badRequest(res, error.message);
     }

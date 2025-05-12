@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 const SubscriptionPackage = require('../models/SubscriptionPackage');
 const User = require('../models/User');
+const Payment = require('../models/Payment');
+const AuthService = require('../services/auth/authService');
 
 const subscriptionService = {
   /**
@@ -367,7 +369,7 @@ const subscriptionService = {
     }
     
     // Lấy thông tin người dùng
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).populate('subscription.package');
     
     if (!user) {
       throw new Error('Không tìm thấy người dùng');
@@ -384,6 +386,24 @@ const subscriptionService = {
       throw new Error('Gói đăng ký hiện không khả dụng');
     }
     
+    // Kiểm tra nếu người dùng đã có gói đăng ký
+    if (user.subscription && user.subscription.package && user.subscription.status === 'active') {
+      // Nếu đăng ký cùng gói, xem như gia hạn
+      if (user.subscription.package._id.toString() === packageInfo._id.toString()) {
+        // Gia hạn gói hiện tại
+        return this._extendSubscription(user, packageInfo, paymentInfo);
+      } else {
+        // Nâng cấp/hạ cấp gói
+        // Lưu lại gói cũ
+        const oldPackage = user.subscription.package;
+        
+        // Nếu đang từ gói cao xuống gói thấp hơn (downgrade)
+        if (oldPackage.price > packageInfo.price && packageInfo.name !== 'free') {
+          // Có thể tính toán hoàn tiền chênh lệch ở đây nếu cần
+        }
+      }
+    }
+    
     // Nếu là gói Free, không cần xử lý thanh toán
     if (packageInfo.name === 'free') {
       // Cập nhật thông tin đăng ký cho người dùng
@@ -391,7 +411,8 @@ const subscriptionService = {
         package: packageInfo._id,
         status: 'active',
         startDate: new Date(),
-        endDate: null // Gói Free không có ngày hết hạn
+        endDate: null, // Gói Free không có ngày hết hạn
+        autoRenew: false
       };
       
       await user.save();
@@ -403,18 +424,24 @@ const subscriptionService = {
       };
     }
     
-    // Xử lý thanh toán (giả định đã thanh toán thành công)
-    // Trong thực tế, cần tích hợp với payment gateway
-    const paymentSuccess = true; // Giả định thanh toán thành công
-    
-    if (!paymentSuccess) {
-      throw new Error('Thanh toán không thành công. Vui lòng thử lại sau.');
+    // Xử lý thanh toán cho gói trả phí
+    // Kiểm tra thông tin thanh toán
+    if (!paymentInfo || !paymentInfo.transactionId) {
+      throw new Error('Thông tin thanh toán không hợp lệ');
     }
     
-    // Tính ngày hết hạn
+    // Tính ngày hết hạn - chuyển đổi từ số tháng sang ngày
     const startDate = new Date();
     const endDate = new Date();
-    endDate.setDate(endDate.getDate() + packageInfo.duration);
+    endDate.setMonth(endDate.getMonth() + packageInfo.duration); // Cộng thêm số tháng
+    
+    // Thêm thông tin thanh toán vào lịch sử
+    const paymentHistory = user.subscription?.paymentHistory || [];
+    paymentHistory.push({
+      amount: packageInfo.price,
+      date: new Date(),
+      transactionId: paymentInfo.transactionId
+    });
     
     // Cập nhật thông tin đăng ký cho người dùng
     user.subscription = {
@@ -422,7 +449,8 @@ const subscriptionService = {
       status: 'active',
       startDate: startDate,
       endDate: endDate,
-      paymentInfo: paymentInfo
+      autoRenew: true, // Mặc định bật tự động gia hạn cho gói trả phí
+      paymentHistory: paymentHistory
     };
     
     await user.save();
@@ -435,6 +463,51 @@ const subscriptionService = {
         status: 'active',
         startDate: startDate,
         endDate: endDate
+      }
+    };
+  },
+  
+  /**
+   * Hàm nội bộ để gia hạn gói đăng ký
+   * @private
+   */
+  async _extendSubscription(user, packageInfo, paymentInfo) {
+    // Tính toán ngày hết hạn mới
+    let newEndDate;
+    
+    if (user.subscription.endDate && user.subscription.endDate > new Date()) {
+      // Nếu gói hiện tại còn hạn, cộng thêm thời gian mới
+      newEndDate = new Date(user.subscription.endDate);
+      newEndDate.setMonth(newEndDate.getMonth() + packageInfo.duration);
+    } else {
+      // Nếu gói đã hết hạn, tính từ hiện tại
+      newEndDate = new Date();
+      newEndDate.setMonth(newEndDate.getMonth() + packageInfo.duration);
+    }
+    
+    // Thêm thông tin thanh toán vào lịch sử
+    const paymentHistory = user.subscription?.paymentHistory || [];
+    paymentHistory.push({
+      amount: packageInfo.price,
+      date: new Date(),
+      transactionId: paymentInfo.transactionId
+    });
+    
+    // Cập nhật thông tin đăng ký
+    user.subscription.endDate = newEndDate;
+    user.subscription.status = 'active';
+    user.subscription.paymentHistory = paymentHistory;
+    
+    await user.save();
+    
+    return {
+      success: true,
+      message: `Gia hạn gói ${packageInfo.name} thành công`,
+      subscription: {
+        package: packageInfo,
+        status: 'active',
+        startDate: user.subscription.startDate,
+        endDate: newEndDate
       }
     };
   },
@@ -485,6 +558,170 @@ const subscriptionService = {
       previousPackage: packageInfo,
       newPackage: freePackage
     };
+  },
+  
+  /**
+   * Kiểm tra và cập nhật các gói đăng ký đã hết hạn
+   * @returns {Object} Kết quả cập nhật
+   */
+  async checkAndUpdateExpiredSubscriptions() {
+    try {
+      const now = new Date();
+      
+      // Tìm tất cả người dùng có gói đăng ký còn hoạt động nhưng đã hết hạn
+      const users = await User.find({
+        'subscription.status': 'active',
+        'subscription.endDate': { $lt: now },
+        'subscription.autoRenew': { $ne: true }
+      }).populate('subscription.package');
+      
+      let updatedCount = 0;
+      
+      for (const user of users) {
+        // Lấy thông tin gói hiện tại
+        const currentPackage = user.subscription.package;
+        
+        // Ghi lại thông tin gói để thống kê
+        console.log(`Cập nhật gói hết hạn cho user ${user._id}, từ gói ${currentPackage.name}`);
+        
+        // Tìm gói Free
+        const freePackage = await SubscriptionPackage.findOne({ name: 'free' });
+        
+        if (!freePackage) {
+          console.error('Không tìm thấy gói Free để cập nhật');
+          continue;
+        }
+        
+        // Cập nhật sang gói Free
+        user.subscription.package = freePackage._id;
+        user.subscription.status = 'expired';
+        user.subscription.endDate = null;
+        
+        await user.save();
+        updatedCount++;
+      }
+      
+      return {
+        success: true,
+        message: `Đã cập nhật ${updatedCount} gói đăng ký hết hạn`,
+        updatedCount
+      };
+    } catch (error) {
+      console.error('Lỗi khi cập nhật gói hết hạn:', error);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  },
+  
+  /**
+   * Xử lý tự động gia hạn gói đăng ký
+   * @returns {Object} Kết quả gia hạn tự động
+   */
+  async processAutoRenewals() {
+    try {
+      const now = new Date();
+      // Ngày mai
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      // Tìm tất cả người dùng có gói đăng ký sắp hết hạn và bật tự động gia hạn
+      const users = await User.find({
+        'subscription.status': 'active',
+        'subscription.endDate': { $lt: tomorrow, $gte: now },
+        'subscription.autoRenew': true
+      }).populate('subscription.package');
+      
+      let renewedCount = 0;
+      
+      for (const user of users) {
+        // Xử lý gia hạn tự động ở đây (tích hợp với cổng thanh toán)
+        // Đây chỉ là mẫu, bạn cần tích hợp với hệ thống thanh toán thực tế
+        
+        console.log(`Đang xử lý gia hạn tự động cho user ${user._id}, gói ${user.subscription.package.name}`);
+        
+        // TODO: Tích hợp thanh toán thực tế
+        // Tại đây, mình có thể gửi email thông báo cho user về việc gia hạn
+        
+        renewedCount++;
+      }
+      
+      return {
+        success: true,
+        message: `Đã xử lý ${renewedCount} yêu cầu gia hạn tự động`,
+        renewedCount
+      };
+    } catch (error) {
+      console.error('Lỗi khi xử lý gia hạn tự động:', error);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  },
+  
+  /**
+   * Kiểm tra và gửi thông báo cho các gói đăng ký sắp hết hạn
+   * @returns {Object} Kết quả gửi thông báo
+   */
+  async checkAndSendExpiryNotifications() {
+    try {
+      const now = new Date();
+      
+      // Danh sách các mốc thông báo (số ngày trước khi hết hạn)
+      const notificationDays = [7, 3, 1];
+      let notificationsSent = 0;
+      
+      for (const days of notificationDays) {
+        // Tính toán ngày sẽ hết hạn
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + days);
+        
+        // Tính toán phạm vi ngày (để tránh gửi nhiều lần)
+        const rangeStart = new Date(expiryDate);
+        rangeStart.setHours(0, 0, 0, 0);
+        
+        const rangeEnd = new Date(expiryDate);
+        rangeEnd.setHours(23, 59, 59, 999);
+        
+        // Tìm tất cả người dùng có gói đăng ký sắp hết hạn trong khoảng này
+        const users = await User.find({
+          'subscription.status': 'active',
+          'subscription.endDate': { $gte: rangeStart, $lte: rangeEnd }
+        }).populate('subscription.package');
+        
+        console.log(`Tìm thấy ${users.length} người dùng có gói đăng ký sẽ hết hạn trong ${days} ngày`);
+        
+        for (const user of users) {
+          try {
+            // Gửi email thông báo
+            await AuthService.sendSubscriptionExpiryEmail(
+              user.email,
+              user.name,
+              days
+            );
+            
+            console.log(`Đã gửi thông báo hết hạn đến ${user.email} (gói hết hạn trong ${days} ngày)`);
+            notificationsSent++;
+          } catch (emailError) {
+            console.error(`Lỗi gửi email thông báo hết hạn đến ${user.email}:`, emailError);
+          }
+        }
+      }
+      
+      return {
+        success: true,
+        message: `Đã gửi ${notificationsSent} thông báo hết hạn gói đăng ký`,
+        notificationsSent
+      };
+    } catch (error) {
+      console.error('Lỗi khi gửi thông báo hết hạn:', error);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
   }
 };
 

@@ -1,5 +1,7 @@
 const subscriptionService = require('../services/subscriptionService');
 const ApiResponse = require('../utils/apiResponse');
+const User = require('../models/User');
+const SubscriptionPackage = require('../models/SubscriptionPackage');
 
 const subscriptionController = {
   /**
@@ -199,6 +201,80 @@ const subscriptionController = {
       return ApiResponse.success(res, result);
     } catch (error) {
       return ApiResponse.badRequest(res, error.message);
+    }
+  },
+  
+  /**
+   * Bật/tắt tự động gia hạn
+   * @route PUT /api/subscriptions/auto-renew
+   * @access Private
+   */
+  async toggleAutoRenew(req, res) {
+    try {
+      const userId = req.user._id;
+      const { autoRenew } = req.body;
+      
+      // Kiểm tra tham số
+      if (typeof autoRenew !== 'boolean') {
+        return ApiResponse.badRequest(res, 'Tham số autoRenew phải là boolean (true/false)');
+      }
+      
+      // Lấy thông tin người dùng
+      const user = await User.findById(userId);
+      
+      if (!user) {
+        return ApiResponse.notFound(res, 'Không tìm thấy người dùng');
+      }
+      
+      // Kiểm tra nếu người dùng có gói đăng ký
+      if (!user.subscription || !user.subscription.package) {
+        return ApiResponse.badRequest(res, 'Bạn chưa đăng ký gói nào');
+      }
+      
+      // Kiểm tra nếu là gói Free
+      const subscriptionPackage = await SubscriptionPackage.findById(user.subscription.package);
+      if (subscriptionPackage.name === 'free') {
+        return ApiResponse.badRequest(res, 'Không thể thiết lập tự động gia hạn cho gói Free');
+      }
+      
+      // Cập nhật trạng thái tự động gia hạn
+      user.subscription.autoRenew = autoRenew;
+      await user.save();
+      
+      return ApiResponse.success(res, {
+        message: `Đã ${autoRenew ? 'bật' : 'tắt'} tự động gia hạn cho gói ${subscriptionPackage.name}`,
+        autoRenew: user.subscription.autoRenew
+      });
+    } catch (error) {
+      return ApiResponse.badRequest(res, error.message);
+    }
+  },
+  
+  /**
+   * Kiểm tra và cập nhật các gói đăng ký đã hết hạn (chỉ Admin)
+   * @route POST /api/subscriptions/check-expired
+   * @access Admin
+   */
+  async checkExpiredSubscriptions(req, res) {
+    try {
+      const result = await subscriptionService.checkAndUpdateExpiredSubscriptions();
+      return ApiResponse.success(res, result);
+    } catch (error) {
+      return ApiResponse.error(res, error.message);
+    }
+  },
+  
+  /**
+   * Xử lý tự động gia hạn gói đăng ký (chỉ Admin)
+   * @route POST /api/subscriptions/process-renewals
+   * @access Admin
+   */
+  async processAutoRenewals(req, res) {
+    try {
+      const result = await subscriptionService.processAutoRenewals();
+      return ApiResponse.success(res, result);
+    } catch (error) {
+      return ApiResponse.error(res, error.message);
     }
   }
 };

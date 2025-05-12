@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const Payment = require('../models/Payments');
+const Payment = require('../models/Payment');
 const User = require('../models/User');
 const SubscriptionPackage = require('../models/SubscriptionPackage');
 const subscriptionService = require('./subscriptionService');

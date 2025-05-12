@@ -32,7 +32,7 @@ const {
 router.post('/register', registerLimiter, validateRequest(registerValidation), register);
 router.post('/login', loginLimiter, validateRequest(loginValidation), login);
 router.post('/forgot-password', forgotPasswordLimiter, validateRequest(forgotPasswordValidation), forgotPassword);
-router.post('/reset-password/:resetToken', validateRequest(resetPasswordValidation), resetPassword);
+router.put('/reset-password/:token', validateRequest(resetPasswordValidation), resetPassword);
 
 // Protected routes
 router.use(protect);

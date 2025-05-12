@@ -55,4 +55,4 @@ PaymentSchema.index({ status: 1 });
 PaymentSchema.index({ transactionId: 1 }, { unique: true });
 PaymentSchema.index({ transactionTime: 1 });
 
-module.exports = mongoose.model('Payment', PaymentSchema);
+module.exports = mongoose.model('Payment', PaymentSchema); 

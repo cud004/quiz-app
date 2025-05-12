@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
 const app = require('./app');
+// Tạm thời comment lại phần cron job để tích hợp sau
+// const { initCronJobs } = require('./cron');
 
 // Load env vars
 require('dotenv').config();
@@ -29,6 +31,9 @@ mongoose.connect(process.env.MONGO_URI)
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
+      
+      // Tạm thời comment lại khởi tạo các tác vụ định kỳ
+      // initCronJobs();
     });
   })
   .catch(err => {

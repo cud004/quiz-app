@@ -23,6 +23,9 @@ router.post('/subscribe/:packageId', protect, subscriptionController.subscribe);
 // Hủy gói đăng ký
 router.post('/cancel', protect, subscriptionController.cancelSubscription);
 
+// Bật/tắt tự động gia hạn
+router.put('/auto-renew', protect, subscriptionController.toggleAutoRenew);
+
 // Routes yêu cầu quyền admin
 // Tạo gói đăng ký mới
 router.post('/', protect, admin, subscriptionController.createPackage);
@@ -41,5 +44,11 @@ router.get('/users/:name', protect, admin, subscriptionController.getUsersByPack
 
 // Lấy thống kê gói đăng ký
 router.get('/statistics', protect, admin, subscriptionController.getPackageStatistics);
+
+// Kiểm tra và cập nhật các gói đăng ký đã hết hạn
+router.post('/check-expired', protect, admin, subscriptionController.checkExpiredSubscriptions);
+
+// Xử lý tự động gia hạn gói đăng ký
+router.post('/process-renewals', protect, admin, subscriptionController.processAutoRenewals);
 
 module.exports = router; 

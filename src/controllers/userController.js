@@ -1,25 +1,19 @@
 const UserService = require('../services/user/userService');
 const QuizAttempt = require('../models/QuizAttempt');
 const Exam = require('../models/Exam');
+const User = require('../models/User');
+const ApiResponse = require('../utils/apiResponse');
 
 // @desc    Get all users
 // @route   GET /api/users
 // @access  Private/Admin
 const getUsers = async (req, res) => {
   try {
-    const users = await UserService.getAllUsers();
-
-    res.status(200).json({
-      success: true,
-      count: users.length,
-      data: users
-    });
+    const users = await User.find({ 'deleted.isDeleted': false });
+    
+    return ApiResponse.success(res, users, 'Users retrieved successfully');
   } catch (error) {
-    console.error('Error in getUsers controller:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to fetch users'
-    });
+    return ApiResponse.error(res, error.message);
   }
 };
 
@@ -28,24 +22,31 @@ const getUsers = async (req, res) => {
 // @access  Private/Admin
 const getUser = async (req, res) => {
   try {
-    const user = await UserService.getUserById(req.params.id);
-
-    res.status(200).json({
-      success: true,
-      data: user
-    });
-  } catch (error) {
-    console.error('Error in getUser controller:', error);
-    if (error.message === 'User not found') {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+    const user = await User.findById(req.params.id).select('-password');
+    
+    if (!user) {
+      return ApiResponse.notFound(res, 'User not found');
     }
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to fetch user'
-    });
+    
+    return ApiResponse.success(res, user, 'User retrieved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message);
+  }
+};
+
+// @desc    Create user
+// @route   POST /api/users
+// @access  Private/Admin
+const createUser = async (req, res) => {
+  try {
+    const user = await User.create(req.body);
+    
+    return ApiResponse.success(res, user, 'User created successfully', 201);
+  } catch (error) {
+    if (error.code === 11000) {
+      return ApiResponse.badRequest(res, 'User with that email already exists');
+    }
+    return ApiResponse.error(res, error.message);
   }
 };
 
@@ -54,24 +55,18 @@ const getUser = async (req, res) => {
 // @access  Private/Admin
 const updateUser = async (req, res) => {
   try {
-    const user = await UserService.updateUser(req.params.id, req.body);
-
-    res.status(200).json({
-      success: true,
-      data: user
-    });
-  } catch (error) {
-    console.error('Error in updateUser controller:', error);
-    if (error.message === 'User not found') {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+    const user = await User.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true
+    }).select('-password');
+    
+    if (!user) {
+      return ApiResponse.notFound(res, 'User not found');
     }
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to update user'
-    });
+    
+    return ApiResponse.success(res, user, 'User updated successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message);
   }
 };
 
@@ -81,23 +76,12 @@ const updateUser = async (req, res) => {
 const deleteUser = async (req, res) => {
   try {
     await UserService.softDeleteUser(req.params.id);
-
-    res.status(200).json({
-      success: true,
-      message: 'User deleted successfully'
-    });
+    return ApiResponse.success(res, null, 'User deleted successfully');
   } catch (error) {
-    console.error('Error in deleteUser controller:', error);
     if (error.message === 'User not found') {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return ApiResponse.notFound(res, 'User not found');
     }
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to delete user'
-    });
+    return ApiResponse.error(res, error.message);
   }
 };
 
@@ -107,18 +91,9 @@ const deleteUser = async (req, res) => {
 const getDeletedUsers = async (req, res) => {
   try {
     const users = await UserService.getDeletedUsers();
-
-    res.status(200).json({
-      success: true,
-      count: users.length,
-      data: users
-    });
+    return ApiResponse.success(res, users, 'Deleted users retrieved successfully');
   } catch (error) {
-    console.error('Error in getDeletedUsers controller:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to fetch deleted users'
-    });
+    return ApiResponse.error(res, error.message);
   }
 };
 
@@ -128,23 +103,12 @@ const getDeletedUsers = async (req, res) => {
 const hardDeleteUser = async (req, res) => {
   try {
     await UserService.hardDeleteUser(req.params.id);
-
-    res.status(200).json({
-      success: true,
-      message: 'User permanently deleted'
-    });
+    return ApiResponse.success(res, null, 'User permanently deleted');
   } catch (error) {
-    console.error('Error in hardDeleteUser controller:', error);
     if (error.message === 'User not found') {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return ApiResponse.notFound(res, 'User not found');
     }
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to delete user'
-    });
+    return ApiResponse.error(res, error.message);
   }
 };
 
@@ -154,23 +118,12 @@ const hardDeleteUser = async (req, res) => {
 const getUserStats = async (req, res) => {
   try {
     const stats = await UserService.getUserStats(req.params.id);
-
-    res.status(200).json({
-      success: true,
-      data: stats
-    });
+    return ApiResponse.success(res, stats, 'User statistics retrieved successfully');
   } catch (error) {
-    console.error('Error in getUserStats controller:', error);
     if (error.message === 'User not found') {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return ApiResponse.notFound(res, 'User not found');
     }
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to fetch user statistics'
-    });
+    return ApiResponse.error(res, error.message);
   }
 };
 
@@ -180,23 +133,12 @@ const getUserStats = async (req, res) => {
 const updatePreferences = async (req, res) => {
   try {
     const preferences = await UserService.updatePreferences(req.user.id, req.body);
-
-    res.status(200).json({
-      success: true,
-      data: preferences
-    });
+    return ApiResponse.success(res, preferences, 'User preferences updated successfully');
   } catch (error) {
-    console.error('Error in updatePreferences controller:', error);
     if (error.message === 'User not found') {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return ApiResponse.notFound(res, 'User not found');
     }
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to update preferences'
-    });
+    return ApiResponse.error(res, error.message);
   }
 };
 

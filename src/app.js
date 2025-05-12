@@ -6,6 +6,7 @@ const hpp = require('hpp');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
 const { errorHandler, apiLimiter } = require('./middleware');
+const corsOptions = require('./config/cors');
 
 // Load env vars
 require('dotenv').config();
@@ -24,9 +25,9 @@ const learningPathRoutes = require('./routes/learningPathRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
-// Tạm thời comment lại các routes có thể gây lỗi
-// const momoRoutes = require('./routes/momoRoutes');
-// const vnpayRoutes = require('./routes/vnpayRoutes');
+// Kích hoạt routes thanh toán
+const momoRoutes = require('./routes/momoRoutes');
+const vnpayRoutes = require('./routes/vnpayRoutes');
 
 const app = express();
 
@@ -52,7 +53,7 @@ app.use(apiLimiter);
 app.use(hpp());
 
 // Enable CORS
-app.use(cors());
+app.use(cors(corsOptions));
 
 // Compress responses
 app.use(compression());
@@ -71,9 +72,9 @@ app.use('/api/learning-paths', learningPathRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/payments', paymentRoutes);
-// Tạm thời comment lại các routes có thể gây lỗi
-// app.use('/api/payments/momo', momoRoutes);
-// app.use('/api/payments/vnpay', vnpayRoutes);
+// Kích hoạt routes thanh toán 
+app.use('/api/payments/momo', momoRoutes);
+app.use('/api/payments/vnpay', vnpayRoutes);
 
 // Error handler
 app.use(errorHandler);

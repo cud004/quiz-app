@@ -94,4 +94,7 @@ router.get('/count-by-topics',
   }
 );
 
+// Sinh giải thích tự động cho câu hỏi bằng Gemini AI
+router.post('/:id/generate-explanation', protect, questionController.generateExplanation);
+
 module.exports = router; 

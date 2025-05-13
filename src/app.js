@@ -31,6 +31,9 @@ const vnpayRoutes = require('./routes/vnpayRoutes');
 
 const app = express();
 
+// Tin tưởng proxy (cần thiết khi sử dụng Ngrok hoặc các proxy khác)
+app.set('trust proxy', 1);
+
 // Body parser
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));

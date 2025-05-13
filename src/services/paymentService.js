@@ -5,6 +5,7 @@ const SubscriptionPackage = require('../models/SubscriptionPackage');
 const subscriptionService = require('./subscriptionService');
 const paymentConfig = require('../config/payment');
 const vnpayService = require('./vnpayService');
+const momoService = require('./momoService');
 const crypto = require('crypto');
 
 /**
@@ -97,7 +98,8 @@ const paymentService = {
       // Sử dụng vnpayService để tạo URL thanh toán
       paymentUrl = await vnpayService.createPaymentUrl(payment, packageInfo, user);
     } else if (paymentMethod === 'momo') {
-      paymentUrl = await this._createMomoUrl(payment, packageInfo, user);
+      // Sử dụng momoService để tạo URL thanh toán thay vì _createMomoUrl
+      paymentUrl = await momoService._createMomoPaymentUrl(payment, packageInfo, user);
     }
     
     return {
@@ -125,61 +127,8 @@ const paymentService = {
    * @returns {object} Kết quả xử lý thanh toán
    */
   async handleMomoReturn(requestBody) {
-    const { orderId, resultCode, message, amount, transId, payType } = requestBody;
-    
-    // Tìm giao dịch theo mã giao dịch
-    const payment = await Payment.findOne({ transactionId: orderId });
-    
-    if (!payment) {
-      throw new Error('Không tìm thấy giao dịch');
-    }
-    
-    // Kiểm tra mã phản hồi
-    if (resultCode === '0') {
-      // Cập nhật trạng thái thanh toán thành công
-      payment.status = 'completed';
-      payment.paymentDetails = {
-        ...payment.paymentDetails,
-        momoTransId: transId,
-        momoPayType: payType,
-        momoMessage: message
-      };
-      await payment.save();
-      
-      // Đăng ký gói subscription cho người dùng
-      await subscriptionService.subscribePackage(
-        payment.user, 
-        payment.subscription.package,
-        { 
-          paymentId: payment._id,
-          transactionId: orderId
-        }
-      );
-      
-      return {
-        success: true,
-        message: 'Thanh toán thành công',
-        payment: payment
-      };
-    } else {
-      // Cập nhật trạng thái thanh toán thất bại
-      payment.status = 'failed';
-      payment.paymentDetails = {
-        ...payment.paymentDetails,
-        errorCode: resultCode,
-        momoTransId: transId,
-        momoPayType: payType,
-        momoMessage: message
-      };
-      await payment.save();
-      
-      return {
-        success: false,
-        message: 'Thanh toán thất bại',
-        errorCode: resultCode,
-        payment: payment
-      };
-    }
+    // Sử dụng momoService để xử lý callback thay vì xử lý trực tiếp
+    return await momoService.handleMomoReturn(requestBody);
   },
   
   /**
@@ -357,36 +306,6 @@ const paymentService = {
       .populate('subscription.package');
     
     return payment;
-  },
-  
-  // Private methods
-  
-  /**
-   * Tạo URL thanh toán MoMo
-   * @private
-   */
-  async _createMomoUrl(payment, packageInfo, user) {
-    // Tham số mẫu cho MoMo
-    const momoParams = {
-      partnerCode: paymentConfig.momo.partnerCode,
-      accessKey: paymentConfig.momo.accessKey,
-      requestId: payment.transactionId,
-      amount: payment.totalAmount.toString(),
-      orderId: payment.transactionId,
-      orderInfo: `Thanh toan goi ${packageInfo.name}`,
-      returnUrl: payment.paymentDetails.returnUrl,
-      notifyUrl: paymentConfig.momo.notifyUrl,
-      extraData: Buffer.from(JSON.stringify({
-        userId: user._id.toString(),
-        packageId: packageInfo._id.toString()
-      })).toString('base64')
-    };
-    
-    // Trong thực tế, sẽ cần tạo mã hash an toàn từ tham số và chính xác theo quy định của MoMo
-    // Đây chỉ là mô phỏng
-    
-    // Trả về URL mẫu
-    return `${paymentConfig.momo.paymentUrl}?partnerCode=${momoParams.partnerCode}&orderId=${momoParams.orderId}&amount=${momoParams.amount}`;
   }
 };
 

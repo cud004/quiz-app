@@ -10,12 +10,13 @@ module.exports = {
     apiUrl: process.env.VNPAY_API_URL || 'https://sandbox.vnpayment.vn/merchant_webapi/api/transaction'
   },
   momo: {
-    partnerCode: process.env.MOMO_PARTNER_CODE || 'YOUR_MOMO_PARTNER_CODE',
-    accessKey: process.env.MOMO_ACCESS_KEY || 'YOUR_MOMO_ACCESS_KEY',
-    secretKey: process.env.MOMO_SECRET_KEY || 'YOUR_MOMO_SECRET_KEY',
+    partnerCode: process.env.MOMO_PARTNER_CODE || 'MOMO',
+    accessKey: process.env.MOMO_ACCESS_KEY || 'F8BBA842ECF85',
+    secretKey: process.env.MOMO_SECRET_KEY || 'K951B6PE1waDMi640xX08PD3vg6EkVlz',
     paymentUrl: process.env.MOMO_PAYMENT_URL || 'https://test-payment.momo.vn/v2/gateway/api/create',
     refundUrl: process.env.MOMO_REFUND_URL || 'https://test-payment.momo.vn/v2/gateway/api/refund',
     queryUrl: process.env.MOMO_QUERY_URL || 'https://test-payment.momo.vn/v2/gateway/api/query',
-    notifyUrl: process.env.MOMO_NOTIFY_URL || 'http://localhost:3000/api/payments/momo-notify'
+    notifyUrl: process.env.MOMO_NOTIFY_URL || 'http://localhost:3000/api/payments/momo/notify',
+    returnUrl: process.env.MOMO_RETURN_URL || 'http://localhost:3000/api/payments/momo/return'
   }
 }; 

@@ -27,16 +27,13 @@ const paymentController = {
         bankCode: bankCode // Thêm bankCode cho VNPay
       };
       
-      // Kích hoạt tính năng thanh toán
-      let result;
-      
-      if (paymentMethod === 'vnpay') {
-        // Sử dụng VNPay Service
-        result = await vnpayService.createPayment(userId, packageId, options);
-      } else if (paymentMethod === 'momo') {
-        // Sử dụng MoMo Service
-        result = await momoService.createPayment(userId, packageId, options);
-      }
+      // Sử dụng paymentService để tạo phiên thanh toán thống nhất
+      const result = await paymentService.createPaymentSession(
+        userId, 
+        packageId, 
+        paymentMethod, 
+        options
+      );
       
       return ApiResponse.success(res, result);
     } catch (error) {

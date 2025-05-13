@@ -1,5 +1,6 @@
 const questionService = require('../services/question/questionService');
 const ApiResponse = require('../utils/apiResponse');
+const { generateExplanation } = require('../services/ai/geminiService');
 
 const questionController = {
   // Lấy danh sách câu hỏi
@@ -180,6 +181,24 @@ const questionController = {
         return ApiResponse.notFound(res, error.message);
       }
       
+      return ApiResponse.error(res, error.message);
+    }
+  },
+
+  // Sinh giải thích tự động bằng Gemini AI
+  generateExplanation: async (req, res) => {
+    try {
+      const question = await questionService.getQuestionById(req.params.id, true);
+      if (!question || !question.question) {
+        return ApiResponse.notFound(res, 'Question not found');
+      }
+      const q = question.question;
+      const explanation = await generateExplanation(q.content, q.options, q.correctAnswer);
+      // Lưu lại vào DB
+      q.explanation = explanation;
+      await q.save();
+      return ApiResponse.success(res, { explanation }, 'Generated explanation successfully');
+    } catch (error) {
       return ApiResponse.error(res, error.message);
     }
   }

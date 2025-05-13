@@ -4,7 +4,7 @@
 module.exports = {
   // Cấu hình chung
   tmnCode: process.env.VNPAY_TMN_CODE || 'YOUR_VNPAY_TMN_CODE',
-  secureSecret: process.env.VNPAY_HASH_SECRET || 'YOUR_VNPAY_HASH_SECRET',
+  hashSecret: process.env.VNPAY_HASH_SECRET || 'YOUR_VNPAY_HASH_SECRET',
   vnpayHost: process.env.VNPAY_HOST || 'https://sandbox.vnpayment.vn',
   
   // Cấu hình tùy chọn

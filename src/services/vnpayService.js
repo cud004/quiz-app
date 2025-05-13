@@ -10,7 +10,7 @@ const crypto = require('crypto');
 // Khởi tạo VNPay instance
 const vnpayInstance = new VNPay({
   tmnCode: vnpayConfig.tmnCode,
-  secureSecret: vnpayConfig.secureSecret,
+  secureSecret: vnpayConfig.hashSecret,
   vnpayHost: vnpayConfig.vnpayHost,
   testMode: vnpayConfig.testMode,
   hashAlgorithm: vnpayConfig.hashAlgorithm,

@@ -5,6 +5,7 @@ const { protect } = require('../middleware/auth');
 
 // Routes công khai - Callbacks từ VNPay
 router.get('/return', vnpayController.handleVNPayReturn);
+router.post('/ipn', vnpayController.handleVNPayIPN);
 
 // Lấy danh sách ngân hàng VNPay hỗ trợ
 router.get('/banks', vnpayController.getBanks);

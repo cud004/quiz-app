@@ -1,5 +1,7 @@
 const momoService = require('../services/momoService');
+const paymentService = require('../services/paymentService');
 const ApiResponse = require('../utils/apiResponse');
+const subscriptionService = require('../services/subscriptionService');
 
 /**
  * Controller xử lý thanh toán qua MoMo
@@ -63,21 +65,31 @@ const momoController = {
    */
   async handleMomoRedirect(req, res) {
     try {
-      console.log('Received MoMo redirect:', req.query);
+      console.log('MoMo redirect callback received:', req.query);
       
-      // Trích xuất thông tin từ query params
-      const { orderId, resultCode, message } = req.query;
+      // Xử lý callback từ MoMo
+      // Lưu ý: MoMo trả về qua query params với GET chứ không phải POST body
+      const result = await paymentService.handleMomoReturn(req.query);
       
-      // Chuyển hướng đến trang kết quả thanh toán
-      const success = resultCode === '0' || resultCode === 0;
-      const redirectUrl = `${process.env.PAYMENT_RETURN_URL || '/payment/result'}?success=${success}&orderId=${orderId}&message=${encodeURIComponent(message)}`;
-      
-      console.log('Redirecting to:', redirectUrl);
-      
-      return res.redirect(redirectUrl);
+      // Kiểm tra kết quả và chuyển hướng người dùng
+      if (result.success) {
+        const payment = result.payment;
+        // Nếu có thông tin payment, lấy ra thông tin gói để hiển thị
+        if (payment && payment.subscription && payment.subscription.package) {
+          const packageInfo = payment.subscription.package;
+          return res.redirect(`/payment/success?package=${packageInfo.name}&price=${payment.totalAmount}&transactionId=${payment.transactionId}`);
+        }
+        // Nếu không có thông tin đầy đủ, redirect với ít thông tin hơn
+        return res.redirect(`/payment/success?transactionId=${req.query.orderId || 'unknown'}`);
+      } else {
+        // Xử lý trường hợp thất bại
+        console.error('MoMo payment failed:', result);
+        const errorMsg = result.message || 'Thanh toán thất bại';
+        return res.redirect(`/payment/error?message=${encodeURIComponent(errorMsg)}&code=${req.query.resultCode || 'unknown'}`);
+      }
     } catch (error) {
       console.error('Error handling MoMo redirect:', error);
-      return ApiResponse.error(res, error.message);
+      return res.redirect(`/payment/error?message=${encodeURIComponent(error.message)}`);
     }
   },
   
@@ -122,6 +134,66 @@ const momoController = {
     } catch (error) {
       console.error('Error requesting MoMo refund:', error);
       return ApiResponse.badRequest(res, error.message);
+    }
+  },
+
+  /**
+   * Xử lý thông báo từ MoMo (IPN)
+   * @route POST /api/payments/momo/notify
+   * @access Public
+   */
+  async handleMomoNotify(req, res) {
+    try {
+      console.log('MoMo IPN received:', req.body);
+      
+      // Xác thực và xử lý IPN
+      const result = await momoService.handleMomoIPN(req.body);
+      
+      if (result.success) {
+        // IPN hợp lệ, kiểm tra nếu payment thành công thì kích hoạt gói đăng ký
+        const payment = result.payment;
+        
+        if (payment.status === 'completed' && payment.user && payment.subscription && payment.subscription.package) {
+          // Kích hoạt gói đăng ký
+          try {
+            console.log(`Kích hoạt gói đăng ký qua IPN cho user ${payment.user._id}, package ${payment.subscription.package._id}`);
+            
+            await subscriptionService.subscribePackage(
+              payment.user._id,
+              payment.subscription.package._id,
+              {
+                transactionId: payment.transactionId,
+                amount: payment.totalAmount
+              }
+            );
+            
+            console.log('Kích hoạt gói đăng ký thành công qua IPN MoMo');
+          } catch (subError) {
+            console.error('Lỗi khi kích hoạt gói đăng ký qua IPN MoMo:', subError);
+            // Không trả về lỗi cho MoMo, chỉ ghi log
+          }
+        }
+        
+        // Trả về kết quả thành công cho MoMo
+        return res.status(200).json({ 
+          status: 0, 
+          message: 'Confirm Success' 
+        });
+      } else {
+        // IPN không hợp lệ
+        console.error('MoMo IPN verification failed:', result);
+        return res.status(200).json({ 
+          status: 99, 
+          message: 'Invalid Signature' 
+        });
+      }
+    } catch (error) {
+      console.error('Error handling MoMo IPN:', error);
+      // Vẫn trả về mã lỗi cho MoMo
+      return res.status(200).json({ 
+        status: 99, 
+        message: 'Unknown error' 
+      });
     }
   }
 };

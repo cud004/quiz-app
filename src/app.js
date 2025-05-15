@@ -7,6 +7,8 @@ const compression = require('compression');
 const cookieParser = require('cookie-parser');
 const { errorHandler, apiLimiter } = require('./middleware');
 const corsOptions = require('./config/cors');
+const session = require('express-session');
+const passport = require('./config/passport');
 
 // Load env vars
 require('dotenv').config();
@@ -60,6 +62,16 @@ app.use(cors(corsOptions));
 
 // Compress responses
 app.use(compression());
+
+// Session middleware cho OAuth
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'quizappsecret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: false }
+}));
+app.use(passport.initialize());
+app.use(passport.session());
 
 // Mount routers
 app.use('/api/auth', authRoutes);

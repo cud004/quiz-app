@@ -1,10 +1,11 @@
+require('dotenv').config();
 const mongoose = require('mongoose');
 const app = require('./app');
 // Tạm thời comment lại phần cron job để tích hợp sau
 // const { initCronJobs } = require('./cron');
 
 // Load env vars
-require('dotenv').config();
+
 
 // Check required environment variables
 const requiredEnvVars = ['MONGO_URI', 'JWT_SECRET', 'JWT_EXPIRE'];

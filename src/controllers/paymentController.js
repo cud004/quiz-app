@@ -3,6 +3,11 @@ const paymentService = require('../services/paymentService');
 const vnpayService = require('../services/vnpayService');
 const momoService = require('../services/momoService');
 const ApiResponse = require('../utils/apiResponse');
+const subscriptionService = require('../services/subscriptionService');
+const Payment = require('../models/Payment');
+const AuthService = require('../services/auth/authService');
+const User = require('../models/User');
+
 
 const paymentController = {
   /**
@@ -140,6 +145,137 @@ const paymentController = {
       return ApiResponse.success(res, payment);
     } catch (error) {
       return ApiResponse.badRequest(res, error.message);
+    }
+  },
+
+  /**
+   * Xử lý kết quả thanh toán và cập nhật subscription
+   * @route GET /api/payments/result
+   * @access Public
+   */
+  async handlePaymentResult(req, res) {
+    try {
+      console.log('Xử lý kết quả thanh toán chung:', req.query);
+      
+      const { vnp_ResponseCode, vnp_TxnRef } = req.query;
+      
+      if (!vnp_TxnRef) {
+        return res.redirect('/payment/error?message=' + encodeURIComponent('Không tìm thấy thông tin giao dịch'));
+      }
+
+      // Tìm thông tin giao dịch
+      const payment = await Payment.findOne({ transactionId: vnp_TxnRef })
+        .populate('user subscription.package');
+      
+      if (!payment) {
+        return res.redirect('/payment/error?message=' + encodeURIComponent('Không tìm thấy thông tin giao dịch'));
+      }
+
+      // Kiểm tra nếu giao dịch đã được xử lý
+      if (payment.status === 'completed') {
+        console.log(`Giao dịch đã được xử lý trước đó: ${payment.transactionId}`);
+        return res.redirect(`/payment/success?package=${payment.subscription.package.name}&duration=${payment.subscription.duration}`);
+      }
+
+      // Khi đến đây, giao dịch chưa được xử lý hoặc chưa hoàn tất
+      
+      if (vnp_ResponseCode === '00') {
+        console.log(`Cập nhật giao dịch thành công: ${payment.transactionId}`);
+        // Cập nhật trạng thái giao dịch
+        payment.status = 'completed';
+        payment.paymentDetails = {
+          ...payment.paymentDetails,
+          responseCode: vnp_ResponseCode,
+          completedAt: new Date()
+        };
+        await payment.save();
+
+        try {
+          // Kiểm tra xem user đã có gói đăng ký kích hoạt chưa trước khi kích hoạt lại
+          const user = await User.findById(payment.user._id);
+          
+          // Chỉ kích hoạt nếu user chưa có gói hoặc gói khác với gói đang thanh toán
+          const needsActivation = !user.subscription || 
+                                !user.subscription.package || 
+                                user.subscription.package.toString() !== payment.subscription.package._id.toString() ||
+                                user.subscription.status !== 'active';
+                                
+          if (needsActivation) {
+            console.log(`Kích hoạt gói đăng ký cho user: ${user._id}, gói: ${payment.subscription.package.name}`);
+            
+            // Kích hoạt gói đăng ký cho người dùng
+            const subscriptionResult = await subscriptionService.subscribePackage(
+              payment.user._id,
+              payment.subscription.package._id,
+              {
+                transactionId: vnp_TxnRef,
+                amount: payment.totalAmount
+              }
+            );
+            
+            console.log('Kích hoạt gói đăng ký thành công');
+          } else {
+            console.log(`User ${user._id} đã có gói đăng ký ${payment.subscription.package.name} kích hoạt rồi`);
+          }
+
+          // Gửi email thông báo thanh toán thành công
+          await AuthService.sendEmail({
+            to: payment.user.email,
+            subject: 'Thanh toán thành công',
+            template: 'payment-success',
+            context: {
+              name: payment.user.name,
+              packageName: payment.subscription.package.name,
+              amount: payment.totalAmount.toLocaleString('vi-VN') + ' VNĐ',
+              transactionId: vnp_TxnRef,
+              paymentMethod: payment.paymentMethod
+            }
+          });
+
+          // Chuyển hướng đến trang thành công với thông tin subscription
+          return res.redirect(`/payment/success?package=${payment.subscription.package.name}&duration=${payment.subscription.duration}&transactionId=${vnp_TxnRef}`);
+        } catch (error) {
+          console.error('Lỗi khi xử lý đăng ký:', error);
+          // Nếu có lỗi khi xử lý subscription, vẫn cập nhật trạng thái thanh toán
+          payment.paymentDetails.error = error.message;
+          await payment.save();
+          
+          return res.redirect('/payment/error?message=' + encodeURIComponent('Thanh toán thành công nhưng có lỗi khi kích hoạt gói. Vui lòng liên hệ hỗ trợ.'));
+        }
+      } else {
+        console.log(`Cập nhật giao dịch thất bại: ${payment.transactionId}, mã lỗi: ${vnp_ResponseCode}`);
+        // Cập nhật trạng thái giao dịch thất bại
+        payment.status = 'failed';
+        payment.paymentDetails = {
+          ...payment.paymentDetails,
+          responseCode: vnp_ResponseCode,
+          failedAt: new Date()
+        };
+        await payment.save();
+
+        // Gửi email thông báo thanh toán thất bại
+        try {
+          await AuthService.sendEmail({
+            to: payment.user.email,
+            subject: 'Thanh toán thất bại',
+            template: 'payment-failed',
+            context: {
+              name: payment.user.name,
+              packageName: payment.subscription.package.name,
+              amount: payment.totalAmount.toLocaleString('vi-VN') + ' VNĐ',
+              transactionId: vnp_TxnRef,
+              reason: 'Mã lỗi: ' + vnp_ResponseCode
+            }
+          });
+        } catch (emailError) {
+          console.error('Lỗi gửi email thông báo thanh toán thất bại:', emailError);
+        }
+
+        return res.redirect('/payment/error?message=' + encodeURIComponent('Thanh toán thất bại. Mã lỗi: ' + vnp_ResponseCode));
+      }
+    } catch (error) {
+      console.error('Lỗi xử lý kết quả thanh toán:', error);
+      return res.redirect('/payment/error?message=' + encodeURIComponent(error.message));
     }
   }
 };

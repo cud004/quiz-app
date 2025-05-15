@@ -54,7 +54,6 @@ const paymentService = {
     
     // Kiểm tra nếu gói miễn phí thì không cần thanh toán
     if (packageInfo.price === 0 || packageInfo.name === 'free') {
-      // Đăng ký gói miễn phí ngay
       const result = await subscriptionService.subscribePackage(userId, packageId);
       return {
         success: true,
@@ -95,10 +94,8 @@ const paymentService = {
     let paymentUrl;
     
     if (paymentMethod === 'vnpay') {
-      // Sử dụng vnpayService để tạo URL thanh toán
       paymentUrl = await vnpayService.createPaymentUrl(payment, packageInfo, user);
     } else if (paymentMethod === 'momo') {
-      // Sử dụng momoService để tạo URL thanh toán thay vì _createMomoUrl
       paymentUrl = await momoService._createMomoPaymentUrl(payment, packageInfo, user);
     }
     
@@ -110,27 +107,218 @@ const paymentService = {
       requiresPayment: true
     };
   },
-  
+
   /**
    * Xử lý kết quả từ cổng thanh toán VNPay
    * @param {object} queryParams - Tham số truy vấn từ VNPay
    * @returns {object} Kết quả xử lý thanh toán
    */
   async handleVNPayReturn(queryParams) {
-    // Sử dụng vnpayService để xử lý callback
-    return await vnpayService.verifyReturnUrl(queryParams);
+    try {
+      console.log('VNPay callback params:', JSON.stringify(queryParams, null, 2));
+      
+      // Xác thực chữ ký từ VNPay
+      const result = await vnpayService.verifyReturnUrl(queryParams);
+
+      if (result.success && result.payment) {
+        const payment = result.payment;
+        
+        // Kiểm tra và kích hoạt gói đăng ký nếu cần
+        if (payment.status === 'completed' && payment.user && payment.subscription.package) {
+          try {
+            const user = await User.findById(payment.user._id);
+            if (!user) throw new Error('Không tìm thấy người dùng');
+
+            // Chỉ kích hoạt nếu chưa có subscription hoạt động
+            const needsActivation = !user.subscription || 
+                                  !user.subscription.package || 
+                                  user.subscription.package.toString() !== payment.subscription.package._id.toString() ||
+                                  user.subscription.status !== 'active';
+
+            if (needsActivation) {
+              const subscriptionResult = await subscriptionService.subscribePackage(
+                payment.user._id,
+                payment.subscription.package._id,
+                {
+                  transactionId: payment.transactionId,
+                  amount: payment.totalAmount
+                }
+              );
+              
+              console.log(`Đã kích hoạt gói đăng ký ${payment.subscription.package.name} cho người dùng ${user.name}`);
+              
+              return { 
+                success: true, 
+                message: 'Thanh toán VNPay thành công và đã kích hoạt gói đăng ký',
+                payment: payment,
+                subscription: subscriptionResult
+              };
+            } else {
+              console.log(`Người dùng ${user._id} đã có gói đăng ký hoạt động`);
+              return { 
+                success: true, 
+                message: 'Thanh toán VNPay thành công, gói đăng ký đã tồn tại',
+                payment: payment
+              };
+            }
+          } catch (subscriptionError) {
+            console.error('Lỗi khi kích hoạt gói đăng ký:', subscriptionError);
+            payment.paymentDetails.subscriptionError = subscriptionError.message;
+            await payment.save();
+            
+            return { 
+              success: true, 
+              message: 'Thanh toán VNPay thành công nhưng có lỗi khi kích hoạt gói đăng ký',
+              payment: payment,
+              error: subscriptionError.message
+            };
+          }
+        }
+        
+        return { 
+          success: true, 
+          message: 'Đã xử lý thanh toán VNPay',
+          payment: payment
+        };
+      }
+
+      return { 
+        success: false, 
+        message: 'Thanh toán VNPay thất bại', 
+        result 
+      };
+    } catch (error) {
+      console.error('Lỗi xử lý callback VNPay:', error);
+      return { success: false, message: error.message };
+    }
   },
-  
+
   /**
-   * Xử lý kết quả từ cổng thanh toán MoMo
-   * @param {object} requestBody - Dữ liệu từ MoMo
+   * Xử lý kết quả từ cổng thanh toán Momo
+   * @param {object} requestBody - Dữ liệu từ Momo
    * @returns {object} Kết quả xử lý thanh toán
    */
   async handleMomoReturn(requestBody) {
-    // Sử dụng momoService để xử lý callback thay vì xử lý trực tiếp
-    return await momoService.handleMomoReturn(requestBody);
+    try {
+      console.log('MoMo callback data:', JSON.stringify(requestBody, null, 2));
+      
+      const result = await momoService.handleMomoReturn(requestBody);
+
+      if (result.success && result.payment) {
+        const payment = result.payment;
+        
+        if (payment.status === 'completed' && payment.user && payment.subscription.package) {
+          try {
+            const user = await User.findById(payment.user._id);
+            if (!user) throw new Error('Không tìm thấy người dùng');
+
+            const needsActivation = !user.subscription || 
+                                  !user.subscription.package || 
+                                  user.subscription.package.toString() !== payment.subscription.package._id.toString() ||
+                                  user.subscription.status !== 'active';
+
+            if (needsActivation) {
+              const subscriptionResult = await subscriptionService.subscribePackage(
+                payment.user._id,
+                payment.subscription.package._id,
+                {
+                  transactionId: payment.transactionId,
+                  amount: payment.totalAmount
+                }
+              );
+              
+              console.log(`Đã kích hoạt gói đăng ký ${payment.subscription.package.name} cho người dùng ${user.name}`);
+              
+              return { 
+                success: true, 
+                message: 'Thanh toán MoMo thành công và đã kích hoạt gói đăng ký',
+                payment: payment,
+                subscription: subscriptionResult
+              };
+            } else {
+              console.log(`Người dùng ${user._id} đã có gói đăng ký hoạt động`);
+              return { 
+                success: true, 
+                message: 'Thanh toán MoMo thành công, gói đăng ký đã tồn tại',
+                payment: payment
+              };
+            }
+          } catch (subscriptionError) {
+            console.error('Lỗi khi kích hoạt gói đăng ký:', subscriptionError);
+            payment.paymentDetails.subscriptionError = subscriptionError.message;
+            await payment.save();
+            
+            return { 
+              success: true, 
+              message: 'Thanh toán MoMo thành công nhưng có lỗi khi kích hoạt gói đăng ký',
+              payment: payment,
+              error: subscriptionError.message
+            };
+          }
+        }
+        
+        return { 
+          success: true, 
+          message: 'Đã xử lý thanh toán MoMo',
+          payment: payment
+        };
+      }
+
+      return { 
+        success: false, 
+        message: 'Thanh toán MoMo thất bại', 
+        result 
+      };
+    } catch (error) {
+      console.error('Lỗi xử lý callback MoMo:', error);
+      return { success: false, message: error.message };
+    }
   },
-  
+
+  /**
+   * Cập nhật gói đăng ký cho người dùng sau khi thanh toán thành công
+   * @param {string} userId - ID của người dùng
+   * @param {string} packageId - ID của gói đăng ký
+   * @returns {object} Kết quả cập nhật gói đăng ký
+   */
+  async updateSubscriptionAfterPayment(userId, packageId) {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        throw new Error('ID người dùng không hợp lệ');
+      }
+      
+      if (!mongoose.Types.ObjectId.isValid(packageId)) {
+        throw new Error('ID gói đăng ký không hợp lệ');
+      }
+      
+      const user = await User.findById(userId);
+      if (!user) throw new Error('Người dùng không tồn tại');
+
+      const packageInfo = await SubscriptionPackage.findById(packageId);
+      if (!packageInfo) throw new Error('Gói đăng ký không tồn tại');
+
+      console.log(`Đang cập nhật gói đăng ký ${packageInfo.name} cho người dùng ${user.name}`);
+      
+      const subscriptionResult = await subscriptionService.subscribePackage(
+        userId, 
+        packageId,
+        {
+          amount: packageInfo.price,
+          transactionId: `DIRECT_${Date.now()}`
+        }
+      );
+
+      return {
+        success: true,
+        message: `Gói ${packageInfo.name} đã được kích hoạt cho người dùng ${user.name}`,
+        subscription: subscriptionResult
+      };
+    } catch (error) {
+      console.error('Lỗi khi cập nhật gói đăng ký:', error);
+      throw new Error('Không thể cập nhật gói đăng ký: ' + error.message);
+    }
+  },
+
   /**
    * Lấy lịch sử thanh toán của người dùng
    * @param {string} userId - ID người dùng
@@ -138,26 +326,21 @@ const paymentService = {
    * @returns {Object} Danh sách thanh toán và thông tin phân trang
    */
   async getUserPaymentHistory(userId, options = {}) {
-    // Kiểm tra ID người dùng hợp lệ
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       throw new Error('ID người dùng không hợp lệ');
     }
     
-    // Tìm người dùng có gói đăng ký tương ứng
     const { page = 1, limit = 10 } = options;
     const skip = (page - 1) * limit;
     
-    // Thực hiện truy vấn với phân trang
     const payments = await Payment.find({ user: userId })
       .populate('subscription.package')
       .skip(skip)
       .limit(limit)
       .sort({ createdAt: -1 });
     
-    // Đếm tổng số thanh toán
     const total = await Payment.countDocuments({ user: userId });
     
-    // Tính toán thông tin phân trang
     return {
       payments,
       pagination: {
@@ -168,97 +351,7 @@ const paymentService = {
       }
     };
   },
-  
-  /**
-   * Yêu cầu hoàn tiền cho giao dịch
-   * @param {string} paymentId - ID giao dịch
-   * @param {string} userId - ID người dùng
-   * @param {string} reason - Lý do hoàn tiền
-   * @returns {Object} Kết quả yêu cầu hoàn tiền
-   */
-  async requestRefund(paymentId, userId, reason) {
-    // Kiểm tra ID giao dịch hợp lệ
-    if (!mongoose.Types.ObjectId.isValid(paymentId)) {
-      throw new Error('ID giao dịch không hợp lệ');
-    }
-    
-    // Kiểm tra ID người dùng hợp lệ
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      throw new Error('ID người dùng không hợp lệ');
-    }
-    
-    // Tìm giao dịch theo ID
-    const payment = await Payment.findById(paymentId);
-    
-    if (!payment) {
-      throw new Error('Không tìm thấy giao dịch');
-    }
-    
-    // Kiểm tra người dùng có phải chủ giao dịch
-    if (payment.user.toString() !== userId) {
-      throw new Error('Bạn không có quyền yêu cầu hoàn tiền cho giao dịch này');
-    }
-    
-    // Kiểm tra trạng thái giao dịch
-    if (payment.status !== 'completed') {
-      throw new Error('Chỉ có thể yêu cầu hoàn tiền cho giao dịch thành công');
-    }
-    
-    // Kiểm tra thời gian giao dịch (ví dụ: chỉ hoàn tiền trong vòng 7 ngày)
-    const transactionTime = new Date(payment.transactionTime);
-    const now = new Date();
-    const diffTime = Math.abs(now - transactionTime);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays > 7) {
-      throw new Error('Chỉ có thể yêu cầu hoàn tiền trong vòng 7 ngày sau khi thanh toán');
-    }
-    
-    // Xử lý hoàn tiền dựa trên phương thức thanh toán
-    if (payment.paymentMethod === 'vnpay') {
-      // Sử dụng vnpayService để thực hiện hoàn tiền
-      const result = await vnpayService.refundTransaction(payment.transactionId, payment.totalAmount, reason);
-      
-      // Kiểm tra kết quả hoàn tiền
-      if (result.vnp_ResponseCode === '00') {
-        // Hoàn tiền thành công, đã cập nhật trạng thái trong vnpayService
-        // Hủy gói subscription của người dùng
-        await subscriptionService.cancelSubscription(userId);
-        
-        return {
-          success: true,
-          message: 'Hoàn tiền thành công',
-          payment: await Payment.findById(paymentId) // Lấy lại payment đã cập nhật
-        };
-      } else {
-        return {
-          success: false,
-          message: 'Hoàn tiền thất bại',
-          errorCode: result.vnp_ResponseCode,
-          payment: payment
-        };
-      }
-    } else if (payment.paymentMethod === 'momo') {
-      // Cập nhật trạng thái thanh toán chờ hoàn tiền
-      payment.status = 'refunded';
-      payment.paymentDetails = {
-        ...payment.paymentDetails,
-        refundReason: reason,
-        refundRequestDate: new Date()
-      };
-      await payment.save();
-      
-      // Hủy gói subscription của người dùng
-      await subscriptionService.cancelSubscription(userId);
-      
-      return {
-        success: true,
-        message: 'Yêu cầu hoàn tiền đã được ghi nhận',
-        payment: payment
-      };
-    }
-  },
-  
+
   /**
    * Lấy thông tin giao dịch theo ID
    * @param {string} paymentId - ID giao dịch 
@@ -266,12 +359,10 @@ const paymentService = {
    * @returns {Object} Thông tin giao dịch
    */
   async getPaymentById(paymentId, userId) {
-    // Kiểm tra ID giao dịch hợp lệ
     if (!mongoose.Types.ObjectId.isValid(paymentId)) {
       throw new Error('ID giao dịch không hợp lệ');
     }
     
-    // Tìm giao dịch theo ID
     const payment = await Payment.findById(paymentId)
       .populate('user', 'name email')
       .populate('subscription.package');
@@ -280,16 +371,13 @@ const paymentService = {
       throw new Error('Không tìm thấy giao dịch');
     }
     
-    // Kiểm tra người dùng có quyền xem giao dịch này không
-    // Người dùng chỉ có thể xem giao dịch của họ
     if (payment.user._id.toString() !== userId) {
-      // Ở đây có thể thêm kiểm tra quyền admin nếu cần
       throw new Error('Bạn không có quyền xem thông tin giao dịch này');
     }
     
     return payment;
   },
-  
+
   /**
    * Lấy thông tin giao dịch theo mã giao dịch
    * @param {string} transactionId - Mã giao dịch
@@ -300,7 +388,6 @@ const paymentService = {
       throw new Error('Mã giao dịch không được để trống');
     }
     
-    // Tìm giao dịch theo mã giao dịch
     const payment = await Payment.findOne({ transactionId })
       .populate('user', 'name email')
       .populate('subscription.package');
@@ -309,4 +396,4 @@ const paymentService = {
   }
 };
 
-module.exports = paymentService; 
+module.exports = paymentService;

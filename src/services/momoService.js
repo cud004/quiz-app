@@ -6,6 +6,8 @@ const User = require('../models/User');
 const SubscriptionPackage = require('../models/SubscriptionPackage');
 const subscriptionService = require('./subscriptionService');
 const paymentConfig = require('../config/payment');
+const AuthService = require('./auth/authService');
+
 
 /**
  * Service xử lý thanh toán qua MoMo
@@ -86,6 +88,8 @@ const momoService = {
     // Tạo URL thanh toán MoMo
     const paymentUrl = await this._createMomoPaymentUrl(payment, packageInfo, user);
     
+    console.log('MoMo payment URL created:', paymentUrl);
+    
     return {
       success: true,
       paymentId: payment._id,
@@ -107,10 +111,19 @@ const momoService = {
       const { orderId, resultCode, message, amount, transId, payType, extraData } = requestBody;
       
       // Tìm giao dịch theo mã giao dịch
-      const payment = await Payment.findOne({ transactionId: orderId });
+      const payment = await Payment.findOne({ transactionId: orderId }).populate('user subscription.package');
       
       if (!payment) {
         throw new Error('Không tìm thấy giao dịch');
+      }
+
+      // Kiểm tra nếu giao dịch đã được xử lý
+      if (payment.status === 'completed') {
+        return {
+          success: true,
+          message: 'Giao dịch đã được xử lý trước đó',
+          payment
+        };
       }
       
       // Xác thực chữ ký
@@ -130,7 +143,8 @@ const momoService = {
           momoPayType: payType,
           momoMessage: message,
           momoExtraData: extraData,
-          momoResultCode: resultCode
+          momoResultCode: resultCode,
+          completedAt: new Date()
         };
         await payment.save();
         
@@ -145,21 +159,42 @@ const momoService = {
           console.warn('Could not decode extraData:', error.message);
         }
         
-        // Đăng ký gói subscription cho người dùng
-        await subscriptionService.subscribePackage(
-          payment.user, 
-          payment.subscription.package,
-          { 
-            paymentId: payment._id,
-            transactionId: orderId,
-            extraData: decodedExtraData
-          }
-        );
+        // Kích hoạt gói đăng ký
+        try {
+          await subscriptionService.subscribePackage(
+            payment.user._id,
+            payment.subscription.package._id,
+            { 
+              transactionId: orderId,
+              amount: payment.totalAmount,
+              extraData: decodedExtraData
+            }
+          );
+
+          // Gửi email thông báo
+          await AuthService.sendEmail({
+            to: payment.user.email,
+            subject: 'Thanh toán MoMo thành công',
+            template: 'payment-success',
+            context: {
+              name: payment.user.name,
+              packageName: payment.subscription.package.name,
+              amount: payment.totalAmount.toLocaleString('vi-VN') + ' VNĐ',
+              transactionId: orderId,
+              paymentMethod: 'MoMo'
+            }
+          });
+        } catch (error) {
+          console.error('Error processing subscription:', error);
+          payment.paymentDetails.error = error.message;
+          await payment.save();
+          throw error;
+        }
         
         return {
           success: true,
           message: 'Thanh toán thành công',
-          payment: payment
+          payment
         };
       } else {
         // Cập nhật trạng thái thanh toán thất bại
@@ -170,102 +205,38 @@ const momoService = {
           momoTransId: transId,
           momoPayType: payType,
           momoMessage: message,
-          momoExtraData: extraData
+          momoExtraData: extraData,
+          failedAt: new Date()
         };
         await payment.save();
+
+        // Gửi email thông báo
+        try {
+          await AuthService.sendEmail({
+            to: payment.user.email,
+            subject: 'Thanh toán MoMo thất bại',
+            template: 'payment-failed',
+            context: {
+              name: payment.user.name,
+              packageName: payment.subscription.package.name,
+              amount: payment.totalAmount.toLocaleString('vi-VN') + ' VNĐ',
+              transactionId: orderId,
+              reason: message || 'Mã lỗi: ' + resultCode
+            }
+          });
+        } catch (emailError) {
+          console.error('Error sending payment failed email:', emailError);
+        }
         
         return {
           success: false,
           message: 'Thanh toán thất bại',
           errorCode: resultCode,
-          payment: payment
+          payment
         };
       }
     } catch (error) {
       console.error('Error handling MoMo return:', error);
-      throw error;
-    }
-  },
-  
-  /**
-   * Yêu cầu hoàn tiền cho giao dịch MoMo
-   * @param {string} paymentId - ID giao dịch
-   * @param {string} userId - ID người dùng
-   * @param {string} reason - Lý do hoàn tiền
-   * @returns {Object} Kết quả yêu cầu hoàn tiền
-   */
-  async requestRefund(paymentId, userId, reason) {
-    try {
-      // Kiểm tra ID giao dịch hợp lệ
-      if (!mongoose.Types.ObjectId.isValid(paymentId)) {
-        throw new Error('ID giao dịch không hợp lệ');
-      }
-      
-      // Kiểm tra ID người dùng hợp lệ
-      if (!mongoose.Types.ObjectId.isValid(userId)) {
-        throw new Error('ID người dùng không hợp lệ');
-      }
-      
-      // Tìm giao dịch theo ID
-      const payment = await Payment.findById(paymentId);
-      
-      if (!payment) {
-        throw new Error('Không tìm thấy giao dịch');
-      }
-      
-      // Kiểm tra người dùng có phải chủ giao dịch
-      if (payment.user.toString() !== userId) {
-        throw new Error('Bạn không có quyền yêu cầu hoàn tiền cho giao dịch này');
-      }
-      
-      // Kiểm tra trạng thái giao dịch
-      if (payment.status !== 'completed') {
-        throw new Error('Chỉ có thể yêu cầu hoàn tiền cho giao dịch thành công');
-      }
-      
-      // Kiểm tra thời gian giao dịch (ví dụ: chỉ hoàn tiền trong vòng 7 ngày)
-      const transactionTime = new Date(payment.transactionTime || payment.createdAt);
-      const now = new Date();
-      const diffTime = Math.abs(now - transactionTime);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      if (diffDays > 7) {
-        throw new Error('Chỉ có thể yêu cầu hoàn tiền trong vòng 7 ngày sau khi thanh toán');
-      }
-      
-      // Thực hiện yêu cầu hoàn tiền đến MoMo
-      const refundResult = await this._createMomoRefund(payment, reason);
-      
-      if (refundResult.resultCode === '0') {
-        // Cập nhật trạng thái thanh toán
-        payment.status = 'refunded';
-        payment.paymentDetails = {
-          ...payment.paymentDetails,
-          refundReason: reason,
-          refundRequestDate: new Date(),
-          refundTransId: refundResult.transId,
-          refundResultCode: refundResult.resultCode
-        };
-        await payment.save();
-        
-        // Hủy gói subscription của người dùng
-        await subscriptionService.cancelSubscription(userId);
-        
-        return {
-          success: true,
-          message: 'Hoàn tiền thành công',
-          payment: payment
-        };
-      } else {
-        return {
-          success: false,
-          message: 'Hoàn tiền thất bại',
-          errorCode: refundResult.resultCode,
-          payment: payment
-        };
-      }
-    } catch (error) {
-      console.error('Error requesting MoMo refund:', error);
       throw error;
     }
   },
@@ -338,6 +309,116 @@ const momoService = {
     }
   },
   
+  /**
+   * Xử lý IPN từ MoMo
+   * @param {Object} requestBody - Dữ liệu từ MoMo
+   * @returns {Object} Kết quả xử lý
+   */
+  async handleMomoIPN(requestBody) {
+    try {
+      console.log('MoMo IPN Data:', JSON.stringify(requestBody, null, 2));
+      
+      const { orderId, resultCode, message, amount, transId, payType, extraData } = requestBody;
+      
+      // Tìm giao dịch theo mã giao dịch
+      const payment = await Payment.findOne({ transactionId: orderId }).populate('user subscription.package');
+      
+      if (!payment) {
+        throw new Error('Không tìm thấy giao dịch');
+      }
+
+      // Kiểm tra nếu giao dịch đã được xử lý
+      if (payment.status === 'completed') {
+        return {
+          success: true,
+          message: 'Giao dịch đã được xử lý trước đó',
+          payment
+        };
+      }
+      
+      // Xác thực chữ ký
+      const isValidSignature = this._verifyMomoSignature(requestBody);
+      if (!isValidSignature) {
+        console.error('Invalid MoMo signature for IPN:', orderId);
+        throw new Error('Chữ ký không hợp lệ');
+      }
+      
+      // Kiểm tra mã phản hồi
+      if (resultCode === 0 || resultCode === '0') {
+        // Cập nhật trạng thái thanh toán thành công
+        payment.status = 'completed';
+        payment.paymentDetails = {
+          ...payment.paymentDetails,
+          momoTransId: transId,
+          momoPayType: payType,
+          momoMessage: message,
+          momoExtraData: extraData,
+          momoResultCode: resultCode,
+          completedAt: new Date()
+        };
+        await payment.save();
+        
+        // Giải mã extraData để lấy thông tin bổ sung (nếu có)
+        let decodedExtraData = {};
+        try {
+          if (extraData) {
+            const extraDataString = Buffer.from(extraData, 'base64').toString();
+            decodedExtraData = JSON.parse(extraDataString);
+          }
+        } catch (error) {
+          console.warn('Could not decode extraData:', error.message);
+        }
+        
+        // Kích hoạt gói đăng ký
+        try {
+          await subscriptionService.subscribePackage(
+            payment.user._id,
+            payment.subscription.package._id,
+            { 
+              transactionId: orderId,
+              amount: payment.totalAmount,
+              extraData: decodedExtraData
+            }
+          );
+        } catch (error) {
+          console.error('Error processing subscription:', error);
+          payment.paymentDetails.error = error.message;
+          await payment.save();
+          throw error;
+        }
+        
+        return {
+          success: true,
+          message: 'Thanh toán thành công',
+          payment
+        };
+      } else {
+        // Cập nhật trạng thái thanh toán thất bại
+        payment.status = 'failed';
+        payment.paymentDetails = {
+          ...payment.paymentDetails,
+          errorCode: resultCode,
+          momoTransId: transId,
+          momoPayType: payType,
+          momoMessage: message,
+          momoExtraData: extraData,
+          failedAt: new Date()
+        };
+        await payment.save();
+        
+        return {
+          success: false,
+          message: 'Thanh toán thất bại',
+          errorCode: resultCode,
+          payment
+        };
+      }
+    } catch (error) {
+      console.error('Error handling MoMo IPN:', error);
+      throw error;
+    }
+  },
+  
   // Private methods
   
   /**
@@ -358,24 +439,37 @@ const momoService = {
       const amount = payment.totalAmount.toString();
       const orderInfo = `Thanh toan goi ${packageInfo.name}`;
       const redirectUrl = payment.paymentDetails.returnUrl || paymentConfig.defaultReturnUrl;
-      const ipnUrl = paymentConfig.momo.notifyUrl;
+      const ipnUrl = paymentConfig.momo.notifyUrl || 'http://localhost:5000/api/payments/momo/notify';
       const extraData = Buffer.from(JSON.stringify({
         userId: user._id.toString(),
         packageId: packageInfo._id.toString()
       })).toString('base64');
       const requestType = "captureWallet";
       
-      // Tạo chuỗi raw signature theo đúng định dạng yêu cầu của MoMo
-      const rawSignature = "accessKey=" + accessKey + 
-        "&amount=" + amount + 
-        "&extraData=" + extraData + 
-        "&ipnUrl=" + ipnUrl + 
-        "&orderId=" + orderId + 
-        "&orderInfo=" + orderInfo + 
-        "&partnerCode=" + partnerCode + 
-        "&redirectUrl=" + redirectUrl + 
-        "&requestId=" + requestId + 
-        "&requestType=" + requestType;
+      // Tạo đối tượng tham số yêu cầu
+      const requestParams = {
+        accessKey,
+        amount,
+        extraData,
+        ipnUrl,
+        orderId,
+        orderInfo,
+        partnerCode,
+        redirectUrl,
+        requestId,
+        requestType
+      };
+      
+      // Sắp xếp tham số và tạo chuỗi chữ ký
+      const sortedParams = {};
+      Object.keys(requestParams).sort().forEach(key => {
+        sortedParams[key] = requestParams[key];
+      });
+      
+      // Tạo chuỗi raw signature theo đúng định dạng MoMo yêu cầu
+      const rawSignature = Object.keys(sortedParams)
+        .map(key => `${key}=${sortedParams[key]}`)
+        .join('&');
       
       // Tạo chữ ký
       const signature = crypto.createHmac('sha256', secretKey)
@@ -384,16 +478,7 @@ const momoService = {
       
       // Chuẩn bị dữ liệu gửi tới MoMo
       const requestBody = {
-        partnerCode,
-        accessKey,
-        requestId,
-        amount,
-        orderId,
-        orderInfo,
-        redirectUrl,
-        ipnUrl,
-        extraData,
-        requestType,
+        ...requestParams,
         signature,
         lang: 'vi'
       };
@@ -443,23 +528,26 @@ const momoService = {
    */
   _verifyMomoSignature(requestBody) {
     try {
+      console.log('Verifying MoMo signature for request:', JSON.stringify(requestBody, null, 2));
+      
       // Lấy chữ ký nhận được từ MoMo
       const signature = requestBody.signature;
+      
+      if (!signature) {
+        console.error('No signature found in MoMo request');
+        return false;
+      }
       
       // Tạo một object mới không bao gồm signature để tạo chuỗi xác thực
       const { signature: _, ...signParams } = requestBody;
       
       // Sắp xếp các tham số theo thứ tự alphabet
-      const sortedParams = {};
-      Object.keys(signParams).sort().forEach(key => {
-        if (signParams[key] !== undefined && signParams[key] !== null) {
-          sortedParams[key] = signParams[key];
-        }
-      });
+      const sortedKeys = Object.keys(signParams).sort();
       
-      // Tạo chuỗi raw signature
-      const rawSignature = Object.entries(sortedParams)
-        .map(([key, value]) => `${key}=${value}`)
+      // Tạo chuỗi raw signature theo đúng định dạng MoMo yêu cầu
+      const rawSignature = sortedKeys
+        .filter(key => signParams[key] !== undefined && signParams[key] !== null && signParams[key] !== '')
+        .map(key => `${key}=${signParams[key]}`)
         .join('&');
       
       // Tạo chữ ký để so sánh
@@ -476,73 +564,6 @@ const momoService = {
     } catch (error) {
       console.error('Error verifying MoMo signature:', error);
       return false;
-    }
-  },
-  
-  /**
-   * Tạo yêu cầu hoàn tiền đến MoMo
-   * @private
-   * @param {Object} payment - Thông tin thanh toán
-   * @param {string} reason - Lý do hoàn tiền
-   * @returns {Object} Kết quả từ MoMo
-   */
-  async _createMomoRefund(payment, reason) {
-    try {
-      const partnerCode = paymentConfig.momo.partnerCode;
-      const accessKey = paymentConfig.momo.accessKey;
-      const secretKey = paymentConfig.momo.secretKey;
-      const requestId = `REFUND_${Date.now()}`;
-      const amount = payment.totalAmount.toString();
-      const orderId = requestId; // Tạo orderId mới cho hoàn tiền
-      const transId = payment.paymentDetails.momoTransId;
-      const description = reason || `Hoàn tiền giao dịch ${payment.transactionId}`;
-      
-      // Tạo chuỗi raw signature theo chuẩn MoMo mới
-      const rawSignature = "accessKey=" + accessKey +
-        "&amount=" + amount +
-        "&description=" + description +
-        "&orderId=" + orderId +
-        "&partnerCode=" + partnerCode +
-        "&requestId=" + requestId +
-        "&transId=" + transId;
-      
-      // Tạo chữ ký
-      const signature = crypto.createHmac('sha256', secretKey)
-        .update(rawSignature)
-        .digest('hex');
-      
-      // Chuẩn bị dữ liệu gửi tới MoMo
-      const requestBody = {
-        partnerCode,
-        accessKey,
-        requestId,
-        amount,
-        orderId,
-        transId,
-        lang: 'vi',
-        description,
-        signature
-      };
-      
-      console.log('MoMo Refund Request:', JSON.stringify(requestBody, null, 2));
-      
-      // Gọi API MoMo để hoàn tiền
-      const response = await axios.post(
-        paymentConfig.momo.refundUrl,
-        requestBody,
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      
-      console.log('MoMo Refund Response:', JSON.stringify(response.data, null, 2));
-      
-      return response.data;
-    } catch (error) {
-      console.error('Error creating MoMo refund:', error);
-      throw new Error('Không thể tạo yêu cầu hoàn tiền MoMo: ' + error.message);
     }
   },
   

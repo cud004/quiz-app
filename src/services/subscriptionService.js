@@ -318,10 +318,13 @@ const subscriptionService = {
       throw new Error('ID người dùng không hợp lệ');
     }
     
-    // Lấy thông tin người dùng
+    // Lấy thông tin người dùng với đầy đủ thông tin subscription
     const user = await User.findById(userId)
       .select('subscription')
-      .populate('subscription.package');
+      .populate({
+        path: 'subscription.package',
+        select: 'name price duration features description isActive'
+      });
     
     if (!user) {
       throw new Error('Không tìm thấy người dùng');
@@ -337,16 +340,21 @@ const subscriptionService = {
         status: 'free',
         startDate: null,
         endDate: null,
-        isActive: true
+        isActive: true,
+        autoRenew: false,
+        paymentHistory: []
       };
     }
     
+    // Trả về thông tin đầy đủ về gói đăng ký
     return {
       package: user.subscription.package,
       status: user.subscription.status,
       startDate: user.subscription.startDate,
       endDate: user.subscription.endDate,
-      isActive: user.subscription.status === 'active'
+      isActive: user.subscription.status === 'active',
+      autoRenew: user.subscription.autoRenew || false,
+      paymentHistory: user.subscription.paymentHistory || []
     };
   },
   

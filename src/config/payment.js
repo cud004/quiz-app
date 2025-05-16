@@ -4,9 +4,9 @@
 module.exports = {
   defaultReturnUrl: process.env.PAYMENT_RETURN_URL || 'http://localhost:5000/api/payments/result',
   vnpay: {
-    tmnCode: process.env.VNPAY_TMN_CODE || 'YOUR_VNPAY_TMN_CODE',
-    hashSecret: process.env.VNPAY_HASH_SECRET || 'YOUR_VNPAY_HASH_SECRET',
-    paymentUrl: process.env.VNPAY_HOST || 'https://sandbox.vnpayment.vn', // Đồng bộ với vnpay.js
+    tmnCode: process.env.VNPAY_TMN_CODE || '6TLZKQ6E',
+    hashSecret: process.env.VNPAY_HASH_SECRET || 'TB0Q8XFA7J38PHMMO8HOT38K3L9QK6NM',
+    paymentUrl: process.env.VNPAY_HOST || 'https://sandbox.vnpayment.vn',
     apiUrl: process.env.VNPAY_API_URL || 'https://sandbox.vnpayment.vn/merchant_webapi/api/transaction'
   },
   momo: {

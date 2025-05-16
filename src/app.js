@@ -9,6 +9,7 @@ const { errorHandler, apiLimiter } = require('./middleware');
 const corsOptions = require('./config/cors');
 const session = require('express-session');
 const passport = require('./config/passport');
+const path = require('path');
 
 // Load env vars
 require('dotenv').config();
@@ -27,7 +28,7 @@ const learningPathRoutes = require('./routes/learningPathRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
-// Kích hoạt routes thanh toán
+// Các cổng thanh toán được quản lý qua API chính
 const momoRoutes = require('./routes/momoRoutes');
 const vnpayRoutes = require('./routes/vnpayRoutes');
 
@@ -47,6 +48,9 @@ app.use(cookieParser());
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
+
+// Phục vụ file tĩnh từ thư mục public
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Set security headers
 app.use(helmet());
@@ -73,7 +77,22 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Mount routers
+// Payment handling routes - define directly to avoid conflicts
+app.get('/payment/success', (req, res) => {
+  // Chuyển hướng về frontend với tham số từ query string
+  res.redirect(`/?paymentStatus=success&${new URLSearchParams(req.query).toString()}`);
+});
+
+app.get('/payment/error', (req, res) => {
+  // Chuyển hướng về frontend với tham số từ query string
+  res.redirect(`/?paymentStatus=error&${new URLSearchParams(req.query).toString()}`);
+});
+
+// Important callback route for VNPay - define directly to make sure it works
+app.get('/api/payments/result', require('./controllers/paymentController').handlePaymentResult);
+app.post('/api/payments/result', require('./controllers/paymentController').handlePaymentResult);
+
+// Mount API routers
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/topics', topicRoutes);
@@ -86,20 +105,27 @@ app.use('/api/recommendations', examRecommendationRoutes);
 app.use('/api/learning-paths', learningPathRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
-app.use('/api/payments', paymentRoutes);
-// Kích hoạt routes thanh toán 
+
+// Mount payment routes in specific order to avoid conflicts
 app.use('/api/payments/momo', momoRoutes);
 app.use('/api/payments/vnpay', vnpayRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // Error handler
 app.use(errorHandler);
 
-// Handle 404
-app.use((req, res, next) => {
+// Handle 404 for API routes
+app.use('/api', (req, res) => {
   res.status(404).json({
     success: false,
-    message: `Route not found: ${req.originalUrl}`
+    message: `API route not found: ${req.originalUrl}`
   });
+});
+
+// Serve React app for all other routes
+app.use(express.static(path.join(__dirname, '../public')));
+app.use((req, res) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 module.exports = app; 

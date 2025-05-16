@@ -4,6 +4,7 @@ const momoController = require('../controllers/momoController');
 const { protect } = require('../middleware/auth');
 
 // Routes công khai - Callbacks từ MoMo
+// Các route này được truy cập từ /api/payments/momo/...
 router.post('/notify', momoController.handleMomoReturn);
 router.get('/return', momoController.handleMomoRedirect);
 

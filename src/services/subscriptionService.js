@@ -396,9 +396,24 @@ const subscriptionService = {
     
     // Kiểm tra nếu người dùng đã có gói đăng ký
     if (user.subscription && user.subscription.package && user.subscription.status === 'active') {
-      // Nếu đăng ký cùng gói, xem như gia hạn
+      // Nếu đăng ký cùng gói, kiểm tra ràng buộc 1 lần/tháng
       if (user.subscription.package._id.toString() === packageInfo._id.toString()) {
-        // Gia hạn gói hiện tại
+        // Kiểm tra xem người dùng đã mua gói này trong vòng 1 tháng chưa
+        if (user.subscription.paymentHistory && user.subscription.paymentHistory.length > 0) {
+          const oneMonthAgo = new Date();
+          oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+          
+          // Lọc các giao dịch trong vòng 1 tháng gần đây cho gói hiện tại
+          const recentPayments = user.subscription.paymentHistory.filter(payment => {
+            return payment.date > oneMonthAgo;
+          });
+          
+          if (recentPayments.length > 0) {
+            throw new Error(`Bạn đã mua gói ${packageInfo.name} trong vòng 1 tháng. Vui lòng chờ đến khi hết hạn hoặc chọn gói khác.`);
+          }
+        }
+        
+        // Nếu không vi phạm ràng buộc, tiến hành gia hạn
         return this._extendSubscription(user, packageInfo, paymentInfo);
       } else {
         // Nâng cấp/hạ cấp gói

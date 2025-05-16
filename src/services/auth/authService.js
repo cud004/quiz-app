@@ -21,15 +21,289 @@ class AuthService {
       }
     });
 
+    // Xử lý template email nếu có
+    let htmlContent = options.html;
+    if (options.template && options.context) {
+      htmlContent = this.renderEmailTemplate(options.template, options.context);
+    }
+
     const message = {
       from: `${process.env.FROM_NAME} <${process.env.FROM_EMAIL}>`,
-      to: options.email,
+      to: options.to || options.email,
       subject: options.subject,
       text: options.message,
-      html: options.html
+      html: htmlContent
     };
 
     await transporter.sendMail(message);
+  }
+
+  /**
+   * Render template email dựa trên loại và dữ liệu
+   * @param {string} templateName - Tên template
+   * @param {object} context - Dữ liệu để render template
+   * @returns {string} HTML content
+   */
+  static renderEmailTemplate(templateName, context) {
+    switch (templateName) {
+      case 'payment-success':
+        return this.renderPaymentSuccessTemplate(context);
+      case 'payment-failed':
+        return this.renderPaymentFailedTemplate(context);
+      default:
+        return context.message || '';
+    }
+  }
+
+  /**
+   * Template email thanh toán thành công
+   * @param {object} context - Dữ liệu để render template
+   * @returns {string} HTML content
+   */
+  static renderPaymentSuccessTemplate(context) {
+    const { name, packageName, amount, transactionId, paymentMethod } = context;
+    return `
+    <!DOCTYPE html>
+    <html lang="vi">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Thanh toán thành công</title>
+      <style>
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          line-height: 1.6;
+          color: #333;
+          margin: 0;
+          padding: 0;
+        }
+        .container {
+          max-width: 600px;
+          margin: 0 auto;
+          padding: 20px;
+          background-color: #ffffff;
+        }
+        .header {
+          background-color: #4CAF50;
+          padding: 20px;
+          text-align: center;
+          color: white;
+          border-radius: 5px 5px 0 0;
+        }
+        .content {
+          padding: 20px;
+          border: 1px solid #e9e9e9;
+          border-radius: 0 0 5px 5px;
+          border-top: none;
+        }
+        .button {
+          display: inline-block;
+          background-color: #4CAF50;
+          color: white;
+          text-decoration: none;
+          padding: 12px 25px;
+          border-radius: 4px;
+          margin: 20px 0;
+          font-weight: bold;
+        }
+        .footer {
+          text-align: center;
+          margin-top: 20px;
+          font-size: 12px;
+          color: #999;
+        }
+        .details {
+          margin: 20px 0;
+          padding: 15px;
+          background-color: #f9f9f9;
+          border-radius: 8px;
+        }
+        .details p {
+          margin: 10px 0;
+        }
+        .success-icon {
+          font-size: 48px;
+          color: #4CAF50;
+          text-align: center;
+          margin: 20px 0;
+        }
+        @media only screen and (max-width: 600px) {
+          .container {
+            width: 100%;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Thanh toán thành công!</h1>
+        </div>
+        <div class="content">
+          <div class="success-icon">✓</div>
+          <p>Xin chào ${name || 'Quý khách'},</p>
+          <p>Cảm ơn bạn đã thanh toán. Gói dịch vụ của bạn đã được kích hoạt thành công.</p>
+          
+          <div class="details">
+            <p><strong>Gói đăng ký:</strong> ${packageName || 'Không có thông tin'}</p>
+            <p><strong>Số tiền:</strong> ${amount || 'Không có thông tin'}</p>
+            <p><strong>Mã giao dịch:</strong> ${transactionId || 'Không có thông tin'}</p>
+            <p><strong>Phương thức thanh toán:</strong> ${paymentMethod || 'Không có thông tin'}</p>
+            <p><strong>Thời gian:</strong> ${new Date().toLocaleString('vi-VN')}</p>
+          </div>
+          
+          <p>Bạn có thể bắt đầu sử dụng các tính năng cao cấp ngay bây giờ.</p>
+          
+          <div style="text-align: center;">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}" class="button">Truy cập ngay</a>
+          </div>
+          
+          <p>Nếu bạn có bất kỳ câu hỏi nào về gói đăng ký của mình, vui lòng liên hệ với đội ngũ hỗ trợ của chúng tôi.</p>
+        </div>
+        <div class="footer">
+          <p>&copy; ${new Date().getFullYear()} Quiz App. Tất cả các quyền được bảo lưu.</p>
+          <p>Email này được gửi tự động, vui lòng không trả lời.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    `;
+  }
+
+  /**
+   * Template email thanh toán thất bại
+   * @param {object} context - Dữ liệu để render template
+   * @returns {string} HTML content
+   */
+  static renderPaymentFailedTemplate(context) {
+    const { name, packageName, amount, transactionId, reason } = context;
+    return `
+    <!DOCTYPE html>
+    <html lang="vi">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Thanh toán thất bại</title>
+      <style>
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          line-height: 1.6;
+          color: #333;
+          margin: 0;
+          padding: 0;
+        }
+        .container {
+          max-width: 600px;
+          margin: 0 auto;
+          padding: 20px;
+          background-color: #ffffff;
+        }
+        .header {
+          background-color: #F44336;
+          padding: 20px;
+          text-align: center;
+          color: white;
+          border-radius: 5px 5px 0 0;
+        }
+        .content {
+          padding: 20px;
+          border: 1px solid #e9e9e9;
+          border-radius: 0 0 5px 5px;
+          border-top: none;
+        }
+        .button {
+          display: inline-block;
+          background-color: #4CAF50;
+          color: white;
+          text-decoration: none;
+          padding: 12px 25px;
+          border-radius: 4px;
+          margin: 20px 0;
+          font-weight: bold;
+        }
+        .retry-button {
+          display: inline-block;
+          background-color: #2196F3;
+          color: white;
+          text-decoration: none;
+          padding: 12px 25px;
+          border-radius: 4px;
+          margin: 20px 10px;
+          font-weight: bold;
+        }
+        .footer {
+          text-align: center;
+          margin-top: 20px;
+          font-size: 12px;
+          color: #999;
+        }
+        .details {
+          margin: 20px 0;
+          padding: 15px;
+          background-color: #f9f9f9;
+          border-radius: 8px;
+        }
+        .details p {
+          margin: 10px 0;
+        }
+        .error-icon {
+          font-size: 48px;
+          color: #F44336;
+          text-align: center;
+          margin: 20px 0;
+        }
+        .error-reason {
+          background-color: #FFEBEE;
+          padding: 10px 15px;
+          border-radius: 4px;
+          margin: 15px 0;
+          color: #D32F2F;
+        }
+        @media only screen and (max-width: 600px) {
+          .container {
+            width: 100%;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Thanh toán thất bại</h1>
+        </div>
+        <div class="content">
+          <div class="error-icon">✗</div>
+          <p>Xin chào ${name || 'Quý khách'},</p>
+          <p>Rất tiếc, giao dịch thanh toán của bạn không thành công.</p>
+          
+          <div class="details">
+            <p><strong>Gói đăng ký:</strong> ${packageName || 'Không có thông tin'}</p>
+            <p><strong>Số tiền:</strong> ${amount || 'Không có thông tin'}</p>
+            <p><strong>Mã giao dịch:</strong> ${transactionId || 'Không có thông tin'}</p>
+            <p><strong>Thời gian:</strong> ${new Date().toLocaleString('vi-VN')}</p>
+            
+            <div class="error-reason">
+              <p><strong>Lý do:</strong> ${reason || 'Không xác định'}</p>
+            </div>
+          </div>
+          
+          <p>Bạn có thể thử lại thanh toán hoặc chọn phương thức thanh toán khác.</p>
+          
+          <div style="text-align: center;">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/subscription" class="retry-button">Thử lại</a>
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/contact" class="button">Liên hệ hỗ trợ</a>
+          </div>
+          
+          <p>Nếu bạn gặp khó khăn trong quá trình thanh toán, vui lòng liên hệ với đội ngũ hỗ trợ của chúng tôi để được trợ giúp.</p>
+        </div>
+        <div class="footer">
+          <p>&copy; ${new Date().getFullYear()} Quiz App. Tất cả các quyền được bảo lưu.</p>
+          <p>Email này được gửi tự động, vui lòng không trả lời.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    `;
   }
 
   static async sendPasswordResetEmail(email, resetToken) {

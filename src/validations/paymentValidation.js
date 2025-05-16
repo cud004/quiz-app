@@ -37,27 +37,28 @@ const refundRequestSchema = Joi.object({
     .min(10)
     .max(500)
     .required()
+    .messages(customMessages),
+  amount: Joi.number()
+    .min(1)
     .messages(customMessages)
 });
 
 // Schema cho việc xác nhận thanh toán từ VNPay
 const vnpayResponseSchema = Joi.object({
-  vnp_ResponseCode: Joi.string()
-    .required()
-    .messages(customMessages),
-  vnp_TxnRef: Joi.string()
-    .required()
-    .messages(customMessages),
-  vnp_Amount: Joi.number()
-    .required()
-    .messages(customMessages),
-  vnp_BankCode: Joi.string()
-    .required()
-    .messages(customMessages),
-  vnp_OrderInfo: Joi.string()
-    .required()
-    .messages(customMessages)
-}).unknown(true);
+  vnp_TmnCode: Joi.string().optional(),
+  vnp_Amount: Joi.string().optional(),
+  vnp_BankCode: Joi.string().optional(),
+  vnp_BankTranNo: Joi.string().optional(),
+  vnp_CardType: Joi.string().optional(),
+  vnp_PayDate: Joi.string().optional(),
+  vnp_OrderInfo: Joi.string().optional(),
+  vnp_TransactionNo: Joi.string().optional(),
+  vnp_ResponseCode: Joi.string().optional(),
+  vnp_TransactionStatus: Joi.string().optional(),
+  vnp_TxnRef: Joi.string().optional(),
+  vnp_SecureHash: Joi.string().optional(),
+  vnp_SecureHashType: Joi.string().optional()
+}).unknown(true); // Allow additional parameters from VNPAY
 
 // Schema cho việc xác nhận thanh toán từ MoMo
 const momoResponseSchema = Joi.object({

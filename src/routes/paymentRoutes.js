@@ -1,16 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const paymentController = require('../controllers/paymentController');
-const vnpayController = require('../controllers/vnpayController');
 const momoController = require('../controllers/momoController');
 const { protect, admin } = require('../middleware/auth');
 
 // Routes công khai - Callbacks từ cổng thanh toán
+// Đây là endpoint xử lý callback từ VNPay sau khi thanh toán
 router.get('/result', paymentController.handlePaymentResult);
-router.get('/vnpay/return', vnpayController.handleVNPayReturn);
-router.post('/vnpay/ipn', vnpayController.handleVNPayIPN);
-router.get('/momo/return', momoController.handleMomoRedirect);
-router.post('/momo/notify', momoController.handleMomoNotify);
+// Thêm route để xử lý khi có lỗi định dạng POST 
+router.post('/result', paymentController.handlePaymentResult);
 
 // Routes cho người dùng đã đăng nhập
 // Tạo phiên thanh toán mới (chung, sẽ điều hướng đến gateway tương ứng)

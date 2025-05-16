@@ -17,18 +17,33 @@ const vnpayController = {
       const userId = req.user._id;
       const { packageId, bankCode } = req.body;
       
+      // Chuẩn bị returnUrl - đảm bảo URL tuyệt đối
+      let returnUrl = req.body.returnUrl || '/api/payments/result';
+      // Nếu returnUrl không bắt đầu bằng http:// hoặc https://, thêm domain
+      if (!returnUrl.startsWith('http://') && !returnUrl.startsWith('https://')) {
+        // Xác định host từ request headers
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+        const host = req.headers['x-forwarded-host'] || req.headers.host;
+        returnUrl = `${protocol}://${host}${returnUrl.startsWith('/') ? '' : '/'}${returnUrl}`;
+      }
+      
+      console.log(`Chuẩn bị tạo thanh toán VNPay: userId=${userId}, packageId=${packageId}, returnUrl=${returnUrl}`);
+      
       // Các tùy chọn bổ sung
       const options = {
-        returnUrl: req.body.returnUrl,
-        ipAddress: req.ip || req.connection.remoteAddress,
+        returnUrl: returnUrl,
+        ipAddress: req.ip || req.connection.remoteAddress || req.socket.remoteAddress || '127.0.0.1',
         bankCode: bankCode
       };
       
       // Sử dụng vnpayService để tạo phiên thanh toán
       const result = await vnpayService.createPayment(userId, packageId, options);
       
+      console.log(`Đã tạo phiên thanh toán VNPay thành công: paymentId=${result.paymentId}, transactionId=${result.transactionId}`);
+      
       return ApiResponse.success(res, result);
     } catch (error) {
+      console.error('Lỗi tạo thanh toán VNPay:', error);
       return ApiResponse.badRequest(res, error.message);
     }
   },
@@ -40,30 +55,50 @@ const vnpayController = {
    */
   async handleVNPayReturn(req, res) {
     try {
-      console.log('VNPay return callback received:', req.query);
+      console.log('VNPay return callback received:', {
+        query: req.query,
+        headers: req.headers,
+        url: req.url
+      });
       
       // Xử lý callback qua service
-      const result = await paymentService.handleVNPayReturn(req.query);
+      const result = await vnpayService.verifyReturnUrl(req.query);
       
       // Kiểm tra kết quả và chuyển hướng người dùng
       if (result.success) {
         const payment = result.payment;
+        console.log('Payment successful:', {
+          transactionId: payment.transactionId,
+          status: payment.status,
+          userId: payment.user?._id,
+          packageId: payment.subscription?.package?._id
+        });
+
         // Nếu có thông tin payment, lấy ra thông tin gói để hiển thị
         if (payment && payment.subscription && payment.subscription.package) {
           const packageInfo = payment.subscription.package;
-          return res.redirect(`/payment/success?package=${packageInfo.name}&price=${payment.totalAmount}&transactionId=${payment.transactionId}`);
+          const redirectUrl = `/payment/success?package=${encodeURIComponent(packageInfo.name)}&price=${payment.totalAmount}&transactionId=${payment.transactionId}`;
+          console.log('Redirecting to success page:', redirectUrl);
+          return res.redirect(redirectUrl);
         }
+
         // Nếu không có thông tin đầy đủ, redirect với ít thông tin hơn
-        return res.redirect(`/payment/success?transactionId=${req.query.vnp_TxnRef || 'unknown'}`);
+        const basicRedirectUrl = `/payment/success?transactionId=${req.query.vnp_TxnRef || 'unknown'}`;
+        console.log('Redirecting to basic success page:', basicRedirectUrl);
+        return res.redirect(basicRedirectUrl);
       } else {
         // Xử lý trường hợp thất bại
         console.error('VNPay payment failed:', result);
         const errorMsg = result.message || 'Thanh toán thất bại';
-        return res.redirect(`/payment/error?message=${encodeURIComponent(errorMsg)}&code=${req.query.vnp_ResponseCode || 'unknown'}`);
+        const errorRedirectUrl = `/payment/error?message=${encodeURIComponent(errorMsg)}&code=${req.query.vnp_ResponseCode || 'unknown'}`;
+        console.log('Redirecting to error page:', errorRedirectUrl);
+        return res.redirect(errorRedirectUrl);
       }
     } catch (error) {
       console.error('Error handling VNPay return:', error);
-      return res.redirect(`/payment/error?message=${encodeURIComponent(error.message)}`);
+      const errorRedirectUrl = `/payment/error?message=${encodeURIComponent(error.message)}`;
+      console.log('Redirecting to error page due to exception:', errorRedirectUrl);
+      return res.redirect(errorRedirectUrl);
     }
   },
   
@@ -77,6 +112,7 @@ const vnpayController = {
       const banks = await vnpayService.getBankList();
       return ApiResponse.success(res, banks);
     } catch (error) {
+      console.error('Lỗi lấy danh sách ngân hàng:', error);
       return ApiResponse.error(res, error.message);
     }
   },
@@ -95,6 +131,7 @@ const vnpayController = {
       
       return ApiResponse.success(res, result);
     } catch (error) {
+      console.error('Lỗi truy vấn giao dịch:', error);
       return ApiResponse.badRequest(res, error.message);
     }
   },
@@ -113,6 +150,10 @@ const vnpayController = {
       // Tìm giao dịch theo ID
       const payment = await paymentService.getPaymentById(paymentId, userId);
       
+      if (!payment) {
+        return ApiResponse.notFound(res, 'Không tìm thấy giao dịch');
+      }
+      
       // Sử dụng vnpayService để yêu cầu hoàn tiền
       const result = await vnpayService.refundTransaction(
         payment.transactionId, 
@@ -123,6 +164,7 @@ const vnpayController = {
       
       return ApiResponse.success(res, result);
     } catch (error) {
+      console.error('Lỗi yêu cầu hoàn tiền:', error);
       return ApiResponse.badRequest(res, error.message);
     }
   },
@@ -139,44 +181,11 @@ const vnpayController = {
       // Xác thực và xử lý IPN
       const result = await vnpayService.verifyIPN(req.query);
       
-      if (result.success) {
-        // IPN hợp lệ, kiểm tra nếu payment thành công thì kích hoạt gói đăng ký
-        const payment = result.payment;
-        
-        if (payment.status === 'completed' && payment.user && payment.subscription && payment.subscription.package) {
-          // Kích hoạt gói đăng ký
-          try {
-            console.log(`Kích hoạt gói đăng ký qua IPN cho user ${payment.user._id}, package ${payment.subscription.package._id}`);
-            
-            await subscriptionService.subscribePackage(
-              payment.user._id,
-              payment.subscription.package._id,
-              {
-                transactionId: payment.transactionId,
-                amount: payment.totalAmount
-              }
-            );
-            
-            console.log('Kích hoạt gói đăng ký thành công qua IPN');
-          } catch (subError) {
-            console.error('Lỗi khi kích hoạt gói đăng ký qua IPN:', subError);
-            // Không trả về lỗi cho VNPay, chỉ ghi log
-          }
-        }
-        
-        // Trả về kết quả thành công cho VNPay
-        return res.status(200).json({ 
-          RspCode: '00', 
-          Message: 'Confirm Success' 
-        });
-      } else {
-        // IPN không hợp lệ
-        console.error('VNPay IPN verification failed:', result);
-        return res.status(200).json({ 
-          RspCode: '99', 
-          Message: 'Invalid Signature' 
-        });
-      }
+      // Trả về kết quả cho VNPay theo định dạng yêu cầu
+      return res.status(200).json({
+        RspCode: result.RspCode,
+        Message: result.Message
+      });
     } catch (error) {
       console.error('Error handling VNPay IPN:', error);
       // Vẫn trả về mã lỗi cho VNPay

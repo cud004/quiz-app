@@ -5,6 +5,7 @@ const Payment = require('../models/Payment');
 const User = require('../models/User');
 const SubscriptionPackage = require('../models/SubscriptionPackage');
 const subscriptionService = require('./subscriptionService');
+const { calculateGatewayAmount } = require('../utils/paymentUtils');
 const paymentConfig = require('../config/payment');
 const AuthService = require('./auth/authService');
 
@@ -436,7 +437,8 @@ const momoService = {
       const secretKey = paymentConfig.momo.secretKey;
       const requestId = payment.transactionId;
       const orderId = payment.transactionId;
-      const amount = payment.totalAmount.toString();
+      // Sử dụng helper function để tính toán số tiền cho MoMo
+      const amount = calculateGatewayAmount(payment.totalAmount, 'momo').toString();
       const orderInfo = `Thanh toan goi ${packageInfo.name}`;
       const redirectUrl = payment.paymentDetails.returnUrl || paymentConfig.defaultReturnUrl;
       const ipnUrl = paymentConfig.momo.notifyUrl || 'http://localhost:5000/api/payments/momo/notify';

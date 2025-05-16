@@ -3,29 +3,21 @@
  */
 const corsOptions = {
   origin: function (origin, callback) {
-    // Danh sách các origin được phép
     const whitelist = [
-      process.env.FRONTEND_URL || 'http://localhost:3000',  // React frontend
-      'http://localhost:5173',  // Vite frontend
-      'http://localhost:8080',  // Vue frontend
-      undefined,  // Cho phép requests từ Postman và các công cụ test API
+      process.env.FRONTEND_URL || 'http://localhost:3000',  
+      'http://localhost:5173',
+      'http://localhost:8080', 'https://sandbox.vnpayment.vn'
     ];
-    
+
     if (process.env.NODE_ENV === 'production') {
-      // Trong môi trường production, chỉ chấp nhận các origin cụ thể
-      if (whitelist.indexOf(origin) !== -1 || !origin) {
+      if (whitelist.includes(origin) || (origin && origin.includes('ngrok-free.app'))) {
         callback(null, true);
       } else {
-        // Cho phép kết nối từ domain ngrok
-        if (origin && origin.includes('ngrok-free.app')) {
-          callback(null, true);
-          return;
-        }
         callback(new Error('Not allowed by CORS'));
       }
     } else {
-      // Trong môi trường development, cho phép tất cả
-      callback(null, true);
+      console.log(`CORS Request from origin: ${origin}`);
+      callback(null, true);  // Development cho phép tất cả
     }
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -33,7 +25,7 @@ const corsOptions = {
   exposedHeaders: ['Content-Range', 'X-Total-Count'],
   credentials: true,
   optionsSuccessStatus: 200,
-  maxAge: 3600 // 1 giờ
+  maxAge: 3600
 };
-  
+
 module.exports = corsOptions;

@@ -7,6 +7,8 @@ const paymentConfig = require('../config/payment');
 const vnpayService = require('./vnpayService');
 const momoService = require('./momoService');
 const crypto = require('crypto');
+const AuthService = require('../services/auth/authService');
+const { calculateGatewayAmount, formatCurrency } = require('../utils/paymentUtils');
 
 /**
  * Service xử lý thanh toán
@@ -94,7 +96,25 @@ const paymentService = {
     let paymentUrl;
     
     if (paymentMethod === 'vnpay') {
-      paymentUrl = await vnpayService.createPaymentUrl(payment, packageInfo, user);
+      // Sử dụng VNPayService để tạo URL thanh toán
+      const vnpayResult = await vnpayService.createPayment(
+        userId, 
+        packageId,
+        {
+          ...options,
+          returnUrl: options.returnUrl || paymentConfig.vnpay.returnUrl || payment.paymentDetails.returnUrl,
+          ipAddress: options.ipAddress || payment.paymentDetails.ipAddress,
+          bankCode: options.bankCode || payment.paymentDetails.bankCode
+        }
+      );
+      
+      paymentUrl = vnpayResult.paymentUrl;
+      
+      // Cập nhật thông tin giao dịch nếu cần
+      if (vnpayResult.transactionId && vnpayResult.transactionId !== payment.transactionId) {
+        payment.transactionId = vnpayResult.transactionId;
+        await payment.save();
+      }
     } else if (paymentMethod === 'momo') {
       paymentUrl = await momoService._createMomoPaymentUrl(payment, packageInfo, user);
     }
@@ -103,93 +123,118 @@ const paymentService = {
       success: true,
       paymentId: payment._id,
       paymentUrl: paymentUrl,
-      transactionId: transactionId,
+      transactionId: payment.transactionId,
       requiresPayment: true
     };
   },
 
   /**
-   * Xử lý kết quả từ cổng thanh toán VNPay
-   * @param {object} queryParams - Tham số truy vấn từ VNPay
-   * @returns {object} Kết quả xử lý thanh toán
+   * Xử lý callback từ VNPay
+   * @param {Object} vnpParams - Tham số từ VNPay
+   * @returns {Object} Kết quả xử lý
    */
-  async handleVNPayReturn(queryParams) {
+  async handleVNPayReturn(vnpParams) {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
-      console.log('VNPay callback params:', JSON.stringify(queryParams, null, 2));
+      console.log('Processing VNPay return callback:', {
+        params: vnpParams,
+        timestamp: new Date().toISOString()
+      });
+
+      // Xác thực callback từ VNPay
+      const result = await vnpayService.verifyReturnUrl(vnpParams);
       
-      // Xác thực chữ ký từ VNPay
-      const result = await vnpayService.verifyReturnUrl(queryParams);
-
-      if (result.success && result.payment) {
-        const payment = result.payment;
-        
-        // Kiểm tra và kích hoạt gói đăng ký nếu cần
-        if (payment.status === 'completed' && payment.user && payment.subscription.package) {
-          try {
-            const user = await User.findById(payment.user._id);
-            if (!user) throw new Error('Không tìm thấy người dùng');
-
-            // Chỉ kích hoạt nếu chưa có subscription hoạt động
-            const needsActivation = !user.subscription || 
-                                  !user.subscription.package || 
-                                  user.subscription.package.toString() !== payment.subscription.package._id.toString() ||
-                                  user.subscription.status !== 'active';
-
-            if (needsActivation) {
-              const subscriptionResult = await subscriptionService.subscribePackage(
-                payment.user._id,
-                payment.subscription.package._id,
-                {
-                  transactionId: payment.transactionId,
-                  amount: payment.totalAmount
-                }
-              );
-              
-              console.log(`Đã kích hoạt gói đăng ký ${payment.subscription.package.name} cho người dùng ${user.name}`);
-              
-              return { 
-                success: true, 
-                message: 'Thanh toán VNPay thành công và đã kích hoạt gói đăng ký',
-                payment: payment,
-                subscription: subscriptionResult
-              };
-            } else {
-              console.log(`Người dùng ${user._id} đã có gói đăng ký hoạt động`);
-              return { 
-                success: true, 
-                message: 'Thanh toán VNPay thành công, gói đăng ký đã tồn tại',
-                payment: payment
-              };
-            }
-          } catch (subscriptionError) {
-            console.error('Lỗi khi kích hoạt gói đăng ký:', subscriptionError);
-            payment.paymentDetails.subscriptionError = subscriptionError.message;
-            await payment.save();
-            
-            return { 
-              success: true, 
-              message: 'Thanh toán VNPay thành công nhưng có lỗi khi kích hoạt gói đăng ký',
-              payment: payment,
-              error: subscriptionError.message
-            };
-          }
-        }
-        
-        return { 
-          success: true, 
-          message: 'Đã xử lý thanh toán VNPay',
-          payment: payment
-        };
+      if (!result.success) {
+        console.error('VNPay verification failed:', result);
+        await session.abortTransaction();
+        return result;
       }
 
-      return { 
-        success: false, 
-        message: 'Thanh toán VNPay thất bại', 
-        result 
-      };
+      const payment = result.payment;
+      console.log('Payment verification successful:', {
+        transactionId: payment.transactionId,
+        status: payment.status,
+        amount: payment.totalAmount
+      });
+
+      // Nếu thanh toán thành công và chưa được xử lý
+      if (result.success && payment.status === 'completed' && !payment.completedAt) {
+        try {
+          // Kích hoạt gói đăng ký
+          console.log('Activating subscription:', {
+            userId: payment.user._id,
+            packageId: payment.subscription.package._id
+          });
+
+          await subscriptionService.subscribePackage(
+            payment.user._id,
+            payment.subscription.package._id,
+            {
+              transactionId: payment.transactionId,
+              amount: payment.totalAmount
+            },
+            session
+          );
+
+          // Gửi email thông báo
+          try {
+            await AuthService.sendEmail({
+              to: payment.user.email,
+              subject: 'Thanh toán thành công',
+              template: 'payment-success',
+              context: {
+                name: payment.user.name,
+                packageName: payment.subscription.package.name,
+                amount: payment.totalAmount.toLocaleString('vi-VN') + ' VNĐ',
+                transactionId: payment.transactionId
+              }
+            });
+            console.log('Success notification email sent');
+          } catch (emailError) {
+            console.error('Error sending success notification email:', emailError);
+            // Don't throw error here, continue with the transaction
+          }
+
+          await session.commitTransaction();
+          console.log('Payment transaction committed successfully');
+        } catch (error) {
+          console.error('Error processing successful payment:', error);
+          await session.abortTransaction();
+          throw error;
+        }
+      } else if (payment.status === 'failed') {
+        try {
+          // Gửi email thông báo thất bại
+          await AuthService.sendEmail({
+            to: payment.user.email,
+            subject: 'Thanh toán thất bại',
+            template: 'payment-failed',
+            context: {
+              name: payment.user.name,
+              packageName: payment.subscription.package.name,
+              amount: payment.totalAmount.toLocaleString('vi-VN') + ' VNĐ',
+              transactionId: payment.transactionId,
+              reason: vnpParams.vnp_ResponseCode
+            }
+          });
+          console.log('Failure notification email sent');
+        } catch (emailError) {
+          console.error('Error sending failure notification email:', emailError);
+        }
+
+        await session.commitTransaction();
+        console.log('Failed payment transaction committed');
+      }
+
+      return result;
     } catch (error) {
-      console.error('Lỗi xử lý callback VNPay:', error);
-      return { success: false, message: error.message };
+      console.error('Error in handleVNPayReturn:', error);
+      await session.abortTransaction();
+      throw error;
+    } finally {
+      session.endSession();
     }
   },
 

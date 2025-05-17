@@ -49,8 +49,7 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Phục vụ file tĩnh từ thư mục public
-app.use(express.static(path.join(__dirname, '../public')));
+
 
 // Set security headers
 app.use(helmet());
@@ -123,9 +122,5 @@ app.use('/api', (req, res) => {
 });
 
 // Serve React app for all other routes
-app.use(express.static(path.join(__dirname, '../public')));
-app.use((req, res) => {
-  res.sendFile(path.join(__dirname, '../public/index.html'));
-});
 
 module.exports = app; 

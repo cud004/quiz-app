@@ -4,7 +4,8 @@ const examController = require('../controllers/examController');
 const { 
   protect, 
   authorize, 
-  validateRequest 
+  validateRequest,
+  canAccessExam
 } = require('../middleware');
 const { 
   createExamValidation,
@@ -26,7 +27,8 @@ router.get('/',
 
 // Protected routes
 router.get('/:id',
-  protect, // Người dùng phải đăng nhập để xem chi tiết đề thi
+  protect,
+  canAccessExam, // Người dùng phải đăng nhập để xem chi tiết đề thi
   validateRequest(getExamValidation),
   examController.getExam
 );

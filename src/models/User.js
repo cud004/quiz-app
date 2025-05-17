@@ -20,6 +20,8 @@ const UserSchema = new mongoose.Schema({
     required: true,
     minlength: 6,
   },
+  resetPasswordToken: String,
+  resetPasswordExpire: Date,
   profileImage: {
     type: String,
     validate: {
@@ -94,8 +96,8 @@ const UserSchema = new mongoose.Schema({
     },
     status: {
       type: String,
-      enum: ['active', 'expired', 'cancelled'],
-      default: 'active'
+      enum: ['active', 'expired', 'cancelled', 'inactive'],
+      default: 'inactive'
     },
     paymentHistory: [{
       amount: Number,

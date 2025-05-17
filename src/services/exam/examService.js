@@ -11,7 +11,7 @@ const examService = {
   async getExams(query) {
     const { 
       page = 1, 
-      limit = 10, 
+      limit = 12,
       sortBy = 'createdAt', 
       sortOrder = 'desc',
       isPublished,
@@ -20,7 +20,8 @@ const examService = {
       tag,
       searchText,
       title,
-      accessLevel
+      accessLevel,
+      difficulty
     } = query;
     
     // Xây dựng filter
@@ -41,6 +42,11 @@ const examService = {
       filter.tags = new ObjectId(tag);
     }
     
+    // Filter theo độ khó nếu có
+    if (difficulty) {
+      filter.difficulty = difficulty;
+    }
+    
     // Text search nếu có
     let textSearchOptions = {};
     if (searchText) {
@@ -56,6 +62,13 @@ const examService = {
     } else {
       sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
     }
+    // if (!user || (user.role !== 'admin' && (!user.subscription || user.subscription.status !== 'active'))) {
+    //   // Chỉ trả về exam free hoặc do chính user tạo
+    //   filter.$or = [
+    //     { accessLevel: 'free' },
+    //     { createdBy: user ? user._id : null }
+    //   ];
+    // }
 
     const exams = await Exam.find(filter, textSearchOptions)
       .populate('topics', 'name category')

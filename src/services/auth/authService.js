@@ -99,7 +99,7 @@ class AuthService {
         .button {
           display: inline-block;
           background-color: #4CAF50;
-          color: white;
+          color: #fff !important;
           text-decoration: none;
           padding: 12px 25px;
           border-radius: 4px;
@@ -214,7 +214,7 @@ class AuthService {
         .button {
           display: inline-block;
           background-color: #4CAF50;
-          color: white;
+          color: #fff !important;
           text-decoration: none;
           padding: 12px 25px;
           border-radius: 4px;
@@ -224,7 +224,7 @@ class AuthService {
         .retry-button {
           display: inline-block;
           background-color: #2196F3;
-          color: white;
+          color: #fff !important;
           text-decoration: none;
           padding: 12px 25px;
           border-radius: 4px;
@@ -346,7 +346,7 @@ class AuthService {
         .button {
           display: inline-block;
           background-color: #4F46E5;
-          color: white;
+          color: #fff !important;
           text-decoration: none;
           padding: 12px 25px;
           border-radius: 4px;
@@ -450,7 +450,7 @@ class AuthService {
         .button {
           display: inline-block;
           background-color: #4F46E5;
-          color: white;
+          color: #fff !important;
           text-decoration: none;
           padding: 12px 25px;
           border-radius: 4px;
@@ -601,7 +601,7 @@ class AuthService {
         .button {
           display: inline-block;
           background-color: #FF6B00;
-          color: white;
+          color: #fff !important;
           text-decoration: none;
           padding: 12px 25px;
           border-radius: 4px;

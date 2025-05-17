@@ -33,6 +33,11 @@ const examSchema = new mongoose.Schema({
     trim: true,
     maxlength: [1000, 'Description cannot be longer than 1000 characters']
   },
+  difficulty: {
+    type: String,
+    enum: ['easy', 'medium', 'hard'],
+    default: 'medium'
+  },
   instructions: {
     type: String,
     maxlength: [2000, 'Instructions cannot be longer than 2000 characters']

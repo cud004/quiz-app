@@ -3,6 +3,7 @@ const Topic = require('../../models/Topic');
 const Tag = require('../../models/Tag');
 const mongoose = require('mongoose');
 const { ObjectId } = mongoose.Types;
+const { generateExplanation } = require('../ai/geminiService');
 
 const questionService = {
   // Lấy danh sách questions với nhiều tiêu chí tìm kiếm
@@ -155,6 +156,14 @@ const questionService = {
     }
 
     const question = new Question(questionData);
+    // Nếu chưa có giải thích, tự động sinh bằng Gemini
+    if (!question.explanation || question.explanation.trim() === '') {
+      question.explanation = await generateExplanation(
+        question.content,
+        question.options,
+        question.correctAnswer
+      );
+    }
     await question.save();
     
     return question;
@@ -219,6 +228,16 @@ const questionService = {
       if (!hasCorrectOption) {
         throw new Error('Correct answer must match one of the option labels');
       }
+    }
+
+    // Nếu updateData.explanation rỗng hoặc không có, tự động sinh lại giải thích
+    if ((updateData.explanation === undefined || updateData.explanation.trim() === '') && (updateData.content || updateData.options || updateData.correctAnswer)) {
+      // Lấy lại dữ liệu mới nhất để sinh giải thích
+      const q = await Question.findById(id);
+      const content = updateData.content || q.content;
+      const options = updateData.options || q.options;
+      const correctAnswer = updateData.correctAnswer || q.correctAnswer;
+      updateData.explanation = await generateExplanation(content, options, correctAnswer);
     }
 
     const updatedQuestion = await Question.findByIdAndUpdate(

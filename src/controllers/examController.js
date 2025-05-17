@@ -5,8 +5,9 @@ const examController = {
   // Lấy danh sách đề thi
   getExams: async (req, res) => {
     try {
-      const result = await examService.getExams(req.query);
-      
+      // Truyền req.user vào service
+      const result = await examService.getExams(req.query, req.user);
+  
       return ApiResponse.paginated(
         res, 
         result.exams,

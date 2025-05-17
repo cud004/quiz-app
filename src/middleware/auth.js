@@ -79,11 +79,11 @@ exports.requireSubscription = (req, res, next) => {
  */
 exports.canAccessExam = async (req, res, next) => {
   try {
-    const examId = req.params.examId;
+    const examId = req.params.id || req.params.examId; // Sửa dòng này
     const user = req.user;
 
     const exam = await Exam.findById(examId);
-    if (!exam || !exam.isActive) {
+    if (!exam || !exam.isPublished) {
       return ApiResponse.notFound(res, 'Exam not found or inactive');
     }
 

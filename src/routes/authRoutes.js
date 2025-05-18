@@ -30,6 +30,8 @@ const {
 const passport = require('../config/passport');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Public routes
 router.post('/register', registerLimiter, validateRequest(registerValidation), register);
@@ -63,7 +65,7 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
 // Protected routes
 router.use(protect);
 router.get('/me', getMe);
-router.put('/profile', validateRequest(updateProfileValidation), updateProfile);
+router.put('/profile', protect, upload.single('profileImage'), updateProfile);
 router.put('/password', validateRequest(updatePasswordValidation), updatePassword);
 router.post('/logout', logout);
 

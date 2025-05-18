@@ -61,8 +61,8 @@ router.delete('/:id/hard', authorize(['admin']), validateRequest(hardDeleteUserV
 router.get('/:id/stats', authorize(['admin']), validateRequest(getUserStatsValidation), getUserStats);
 
 // User routes (accessible by both users and admins)
-router.put('/profile', upload.single('profileImage'), validateRequest(updateProfileValidation), updateProfile);
+router.put('/profile', upload.single('profileImage'),updateProfile);
 router.put('/preferences', validateRequest(updatePreferencesValidation), updatePreferences);
-router.put('/favorite-exam/:examId', validateRequest(toggleFavoriteExamValidation), toggleFavoriteExam);
+router.put('/favorite-exam/:examId', validateRequest(toggleFavoriteExamValidation), toggleFavoriteExam);  
 
 module.exports = router; 

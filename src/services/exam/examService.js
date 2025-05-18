@@ -58,17 +58,10 @@ const examService = {
     
     // Text search nếu có
     let textSearchOptions = {};
-    if (searchText) {
-      filter.$or = [
-        { title: { $regex: searchText, $options: 'i' } },
-        { description: { $regex: searchText, $options: 'i' } }
-      ];
-      textSearchOptions.score = { $meta: 'textScore' };
-    }
-    
-    // Xác định cách sắp xếp
     let sortOptions = {};
     if (searchText) {
+      filter.$text = { $search: searchText };
+      textSearchOptions.score = { $meta: 'textScore' };
       sortOptions = { score: { $meta: 'textScore' } };
     } else {
       sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;

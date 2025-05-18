@@ -18,11 +18,8 @@ const {
 // Tất cả route đều yêu cầu người dùng đăng nhập
 router.use(protect);
 
-// Lấy lịch sử tổng hợp các đề đã làm
-router.get('/history/summary', quizAttemptController.getUserExamHistorySummary);
-// Lấy các lượt làm với 1 đề thi
-router.get('/history', quizAttemptController.getUserExamAttempts);
-
+// Tổng quan lịch sử làm bài của user
+router.get('/summary', quizAttemptController.getUserQuizSummary);
 // Bắt đầu làm bài kiểm tra
 router.post('/start', 
   validateRequest(startQuizValidation), 
@@ -70,5 +67,7 @@ router.get('/:id/summary',
   validateRequest(getQuizResultValidation),
   quizAttemptController.getQuizSummary
 );
+
+
 
 module.exports = router; 

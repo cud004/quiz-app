@@ -5,15 +5,33 @@ const examController = {
   // Lấy danh sách đề thi
   getExams: async (req, res) => {
     try {
-      // Truyền req.user vào service
+      // Lấy danh sách đề và phân trang
       const result = await examService.getExams(req.query, req.user);
-  
-      return ApiResponse.paginated(
-        res, 
-        result.exams,
-        result.pagination,
-        'Exams retrieved successfully'
-      );
+
+      // Lấy danh sách topic cho dropdown
+      const Topic = require('../models/Topic');
+      const topics = await Topic.find({}, '_id name').sort('name');
+
+      // Danh sách độ khó và accessLevel cố định
+      const difficulties = [
+        { value: 'easy', label: 'Dễ' },
+        { value: 'medium', label: 'Trung bình' },
+        { value: 'hard', label: 'Khó' }
+      ];
+      const accessLevels = [
+        { value: 'free', label: 'Miễn phí' },
+        { value: 'premium', label: 'Premium' }
+      ];
+
+      return res.json({
+        success: true,
+        exams: result.exams,
+        pagination: result.pagination,
+        total: result.pagination.total,
+        topics,
+        difficulties,
+        accessLevels
+      });
     } catch (error) {
       return ApiResponse.error(res, error.message);
     }

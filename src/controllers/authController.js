@@ -3,6 +3,7 @@ const AuthService = require('../services/auth/authService');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const ApiResponse = require('../utils/apiResponse');
+const ImageService = require('../services/user/imageService');
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -134,18 +135,44 @@ const getMe = async (req, res) => {
       .select('-password')
       .populate('subscription.package');
 
+    // Lấy thông tin gói đăng ký
+    let subscriptionInfo = null;
+    if (user.subscription && user.subscription.package) {
+      subscriptionInfo = {
+        name: user.subscription.package.name,
+        status: user.subscription.status,
+        startDate: user.subscription.startDate,
+        endDate: user.subscription.endDate,
+        isActive: user.subscription.status === 'active',
+        autoRenew: user.subscription.autoRenew || false
+      };
+    } else {
+      subscriptionInfo = { name: 'free', status: 'free', isActive: true };
+    }
+
+    // Lấy thông tin avatar nếu có
+    let profileImage = null;
+    if (user.profileImage && user.profileImage.url) {
+      profileImage = {
+        url: user.profileImage.url,
+        thumbnailUrl: user.profileImage.thumbnailUrl,
+        fileId: user.profileImage.fileId,
+        uploadedAt: user.profileImage.uploadedAt
+      };
+    }
+
     return ApiResponse.success(
       res,
       {
         user: {
           id: user._id,
           name: user.name,
+          username: user.username || '',
           email: user.email,
           role: user.role,
           preferences: user.preferences,
-          subscription: user.subscription,
-          learningStats: user.learningStats,
-          examHistory: user.examHistory
+          profileImage,
+          subscription: subscriptionInfo
         }
       },
       'User profile retrieved successfully'
@@ -160,20 +187,27 @@ const getMe = async (req, res) => {
 // @access  Private
 const updateProfile = async (req, res) => {
   try {
-    const fieldsToUpdate = {
-      name: req.body.name,
-      email: req.body.email,
-      profileImage: req.body.profileImage,
-      preferences: req.body.preferences
-    };
+    const updateData = { ...req.body };
 
+    // Nếu có file upload, xử lý upload lên ImageKit
+    if (req.file) {
+      const imageData = await ImageService.uploadImage(
+        req.file.buffer,
+        req.file.originalname
+      );
+      updateData.profileImage = {
+        url: imageData.url,
+        thumbnailUrl: imageData.thumbnailUrl,
+        fileId: imageData.fileId,
+        uploadedAt: new Date()
+      };
+    }
+
+    // Cập nhật user
     const user = await User.findByIdAndUpdate(
       req.user.id,
-      fieldsToUpdate,
-      {
-        new: true,
-        runValidators: true
-      }
+      updateData,
+      { new: true, runValidators: true }
     ).select('-password');
 
     res.json({

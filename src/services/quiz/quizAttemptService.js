@@ -680,23 +680,6 @@ const quizAttemptService = {
     return result;
   },
 
-  // Lấy các lượt làm với 1 đề thi
-  async getUserExamAttempts(userId, examId) {
-    const filter = { user: userId };
-    if (examId) filter.exam = examId;
-    const attempts = await QuizAttempt.find(filter)
-      .populate({ path: 'exam', select: 'title topic' })
-      .sort({ startTime: -1 })
-      .lean();
-    return attempts.map(a => ({
-      attemptId: a._id,
-      score: a.score,
-      startTime: a.startTime,
-      endTime: a.endTime,
-      status: a.status,
-      exam: a.exam
-    }));
-  }
 };
 
 module.exports = quizAttemptService; 

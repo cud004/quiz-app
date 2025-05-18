@@ -1,6 +1,7 @@
 const quizAttemptService = require('../services/quiz/quizAttemptService');
 const ApiResponse = require('../utils/apiResponse');
 const QuizAttempt = require('../models/QuizAttempt');
+const Topic = require('../models/Topic');
 
 const quizAttemptController = {
   // Bắt đầu làm bài kiểm tra
@@ -342,28 +343,48 @@ const quizAttemptController = {
     }
   },
   
-  // Lấy lịch sử tổng hợp các đề đã làm
-  getUserExamHistorySummary: async (req, res) => {
+  // Tổng quan lịch sử làm bài của user
+  getUserQuizSummary: async (req, res) => {
     try {
       const userId = req.user._id;
-      const result = await quizAttemptService.getUserExamHistorySummary(userId);
-      return ApiResponse.success(res, result, 'Exam history summary retrieved successfully');
+      const QuizAttempt = require('../models/QuizAttempt');
+      const Topic = require('../models/Topic');
+      // Lấy tất cả các lần làm bài đã hoàn thành
+      const attempts = await QuizAttempt.find({ user: userId, status: 'completed' }).populate({ path: 'exam', select: 'topic' });
+      const totalAttempts = attempts.length;
+      const averageScore = totalAttempts > 0 ? (attempts.reduce((sum, a) => sum + a.score, 0) / totalAttempts) : 0;
+      const countAbove80 = attempts.filter(a => a.score >= 80).length;
+      const countBelow50 = attempts.filter(a => a.score < 50).length;
+      const totalQuestions = attempts.reduce((sum, a) => sum + (a.answers ? a.answers.length : 0), 0);
+      const correctAnswers = attempts.reduce((sum, a) => sum + (a.correctAnswers || 0), 0);
+      const totalTimeSpent = attempts.reduce((sum, a) => sum + (a.timeSpent || 0), 0);
+      const bestScore = attempts.reduce((max, a) => a.score > max ? a.score : max, 0);
+      // Đếm số topic đã học
+      const topicSet = new Set();
+      attempts.forEach(a => {
+        if (a.exam && a.exam.topic) topicSet.add(a.exam.topic.toString());
+      });
+      const topicCount = topicSet.size;
+      const totalTopics = await Topic.countDocuments();
+      return res.json({
+        success: true,
+        summary: {
+          totalAttempts,
+          averageScore: Math.round(averageScore * 10) / 10,
+          countAbove80,
+          countBelow50,
+          totalQuestions,
+          correctAnswers,
+          totalTimeSpent,
+          bestScore,
+          topicStats: { learned: topicCount, total: totalTopics }
+        }
+      });
     } catch (error) {
-      return ApiResponse.error(res, error.message);
+      return res.status(500).json({ success: false, message: error.message });
     }
   },
-
-  // Lấy các lượt làm với 1 đề thi
-    getUserExamAttempts: async (req, res) => {
-    try {
-      const userId = req.user._id;
-      const { examId } = req.query;
-      const result = await quizAttemptService.getUserExamAttempts(userId, examId);
-      return ApiResponse.success(res, result, 'Exam attempts retrieved successfully');
-    } catch (error) {
-      return ApiResponse.error(res, error.message);
-    }
-  }
+  
 };
 
 module.exports = quizAttemptController; 

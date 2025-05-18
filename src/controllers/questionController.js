@@ -1,6 +1,10 @@
 const questionService = require('../services/question/questionService');
 const ApiResponse = require('../utils/apiResponse');
 const { generateExplanation } = require('../services/ai/geminiService');
+const xlsx = require('xlsx');
+const fs = require('fs');
+const Tag = require('../models/Tag');
+const Topic = require('../models/Topic');
 
 const questionController = {
   // Lấy danh sách câu hỏi
@@ -198,6 +202,53 @@ const questionController = {
       q.explanation = explanation;
       await q.save();
       return ApiResponse.success(res, { explanation }, 'Generated explanation successfully');
+    } catch (error) {
+      return ApiResponse.error(res, error.message);
+    }
+  },
+
+  // Import câu hỏi từ file Excel
+  importQuestionsFromExcel: async (req, res) => {
+    try {
+      if (!req.file) {
+        return ApiResponse.validationError(res, [{ field: 'file', message: 'No file uploaded' }]);
+      }
+      // Đọc file Excel
+      const workbook = xlsx.readFile(req.file.path);
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = xlsx.utils.sheet_to_json(sheet);
+      // Lấy map tên -> ObjectId cho topic và tag
+      const topics = await Topic.find({});
+      const topicMap = {};
+      topics.forEach(t => { topicMap[t.name.trim()] = t._id; });
+      const tags = await Tag.find({});
+      const tagMap = {};
+      tags.forEach(t => { tagMap[t.name.trim()] = t._id; });
+      // Chuyển đổi dữ liệu
+      const questions = rows.map(row => {
+        const options = [];
+        ['A', 'B', 'C', 'D'].forEach(label => {
+          if (row['options' + label]) {
+            options.push({ label, text: row['options' + label] });
+          }
+        });
+        const tagNames = (row.tagNames || '').split(',').map(s => s.trim()).filter(Boolean);
+        const tagIds = tagNames.map(name => tagMap[name]).filter(Boolean);
+        return {
+          content: row.content,
+          options,
+          correctAnswer: row.correctAnswer,
+          explanation: row.explanation || '',
+          difficulty: row.difficulty || 'medium',
+          points: Number(row.points) || 1,
+          topic: topicMap[row.topicName && row.topicName.trim()],
+          tags: tagIds,
+          isActive: row.isActive === true || row.isActive === 'TRUE' || row.isActive === 1
+        };
+      });
+      fs.unlinkSync(req.file.path);
+      const result = await questionService.importQuestions(questions, req.user._id);
+      return ApiResponse.success(res, result, 'Questions imported from Excel successfully');
     } catch (error) {
       return ApiResponse.error(res, error.message);
     }

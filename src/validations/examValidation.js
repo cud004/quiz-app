@@ -84,7 +84,11 @@ const examSchema = Joi.object({
       .messages({
         'string.pattern.base': 'Tag ID must be a valid MongoDB ObjectId'
       })
-  )
+  ),
+  difficulty: Joi.string().valid('easy', 'medium', 'hard')
+    .messages({
+      'any.only': 'Difficulty must be one of: easy, medium, hard'
+    })
 }).messages(customMessages);
 
 // Exam update schema (fork from main schema, making all fields optional)

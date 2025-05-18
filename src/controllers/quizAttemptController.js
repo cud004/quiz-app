@@ -349,8 +349,16 @@ const quizAttemptController = {
       const userId = req.user._id;
       const QuizAttempt = require('../models/QuizAttempt');
       const Topic = require('../models/Topic');
-      // Lấy tất cả các lần làm bài đã hoàn thành
-      const attempts = await QuizAttempt.find({ user: userId, status: 'completed' }).populate({ path: 'exam', select: 'topic' });
+      // Lấy tham số timeRange (số ngày), mặc định là toàn bộ lịch sử nếu không truyền
+      const { timeRange } = req.query;
+      const filter = { user: userId, status: 'completed' };
+      if (timeRange) {
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - Number(timeRange));
+        filter.endTime = { $gte: startDate };
+      }
+      // Lấy tất cả các lần làm bài đã hoàn thành trong khoảng thời gian
+      const attempts = await QuizAttempt.find(filter).populate({ path: 'exam', select: 'topic' });
       const totalAttempts = attempts.length;
       const averageScore = totalAttempts > 0 ? (attempts.reduce((sum, a) => sum + a.score, 0) / totalAttempts) : 0;
       const countAbove80 = attempts.filter(a => a.score >= 80).length;

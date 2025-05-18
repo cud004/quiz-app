@@ -7,7 +7,7 @@ const examController = {
     try {
       // Lấy danh sách đề và phân trang
       const result = await examService.getExams(req.query, req.user);
-
+  
       // Lấy danh sách topic cho dropdown
       const Topic = require('../models/Topic');
       const topics = await Topic.find({}, '_id name').sort('name');

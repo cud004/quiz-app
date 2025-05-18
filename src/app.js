@@ -107,7 +107,7 @@ app.use('/api/payments/vnpay', vnpayRoutes);
 app.use('/api/payments', paymentRoutes);
 
 // Thêm route mới
-app.use('/api/learning', learningAnalyticsRoutes);
+app.use('/api/learning-analytics', learningAnalyticsRoutes);
 
 
 

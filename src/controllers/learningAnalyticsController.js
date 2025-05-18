@@ -7,8 +7,8 @@ const learningAnalyticsController = {
    */
   getAnalytics: async (req, res) => {
     try {
-      const { type, timeRange } = req.query;
-      const analytics = await learningAnalyticsService.getAnalytics(req.user._id, { type, timeRange });
+      const { type, timeRange, topicId, tagId } = req.query;
+      const analytics = await learningAnalyticsService.getAnalytics(req.user._id, { type, timeRange, topicId, tagId });
       
       return ApiResponse.success(
         res,
@@ -25,10 +25,10 @@ const learningAnalyticsController = {
    */
   getRecommendations: async (req, res) => {
     try {
-      const { type, limit, topicId } = req.query;
+      const { type, limit, topicId, tagId } = req.query;
       const recommendations = await learningAnalyticsService.getRecommendations(
         req.user._id, 
-        { type, limit, topicId }
+        { type, limit, topicId, tagId }
       );
       
       return ApiResponse.success(

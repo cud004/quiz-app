@@ -35,6 +35,11 @@ const TagSchema = new mongoose.Schema({
   performanceStats: {
     totalAttempts: { type: Number, default: 0 },
     correctRate: { type: Number, default: 0 }
+  },
+  topic: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Topic',
+    required: true
   }
 }, {
   timestamps: true,

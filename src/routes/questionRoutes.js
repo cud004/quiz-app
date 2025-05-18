@@ -16,6 +16,8 @@ const {
 } = require('../validations/questionValidation');
 const questionService = require('../services/question/questionService');
 const ApiResponse = require('../utils/apiResponse');
+const multer = require('multer');
+const upload = multer({ dest: 'uploads/' });
 
 // Lấy danh sách câu hỏi
 router.get('/', 
@@ -50,6 +52,9 @@ router.post('/import',
   validateRequest(importQuestionsValidation), 
   questionController.importQuestions
 );
+
+// Import câu hỏi từ file Excel (admin only)
+router.post('/import-excel', protect, authorize(['admin']), upload.single('file'), questionController.importQuestionsFromExcel);
 
 // Tạo câu hỏi mới (admin only)
 router.post('/', 

@@ -12,7 +12,9 @@ const corsOptions = {
       'http://localhost:3000',
       'http://localhost:5173',
       'http://localhost:8080',
-      'https://sandbox.vnpayment.vn'
+      'https://sandbox.vnpayment.vn',
+      'https://ik.imagekit.io/c3dq7il1wp/',
+
     ].filter(Boolean); // Loại bỏ các giá trị null/undefined
     
     // Kiểm tra xem origin có chứa ngrok không

@@ -11,7 +11,7 @@ const topicService = {
       sortOrder = 'asc',
       category,
       difficulty,
-      name,
+      searchText,
       isActive 
     } = query;
     
@@ -20,10 +20,18 @@ const topicService = {
     
     if (category) filter.category = category;
     if (difficulty) filter.difficulty = difficulty;
-    if (name) filter.name = { $regex: name, $options: 'i' };
     if (isActive !== undefined) filter.isActive = isActive === 'true';
     
+    // Text search nếu có
+    if (searchText) {
+      filter.$or = [
+        { name: { $regex: searchText, $options: 'i' } },
+        { description: { $regex: searchText, $options: 'i' } }
+      ];
+    }
+    
     const topics = await Topic.find(filter)
+      .populate('parentTopic', 'name')
       .sort({ [sortBy]: sortOrder === 'asc' ? 1 : -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));

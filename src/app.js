@@ -11,6 +11,7 @@ const session = require('express-session');
 const passport = require('./config/passport');
 const path = require('path');
 
+
 // Load env vars
 require('dotenv').config();
 
@@ -22,8 +23,7 @@ const tagRoutes = require('./routes/tagRoutes');
 const questionRoutes = require('./routes/questionRoutes');
 const examRoutes = require('./routes/examRoutes');
 const quizAttemptRoutes = require('./routes/quizAttemptRoutes');
-const userPerformanceRoutes = require('./routes/userPerformanceRoutes');
-const examRecommendationRoutes = require('./routes/examRecommendationRoutes');
+const learningAnalyticsRoutes = require('./routes/learningAnalyticsRoutes');
 const learningPathRoutes = require('./routes/learningPathRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
@@ -48,8 +48,6 @@ app.use(cookieParser());
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
-
-
 
 // Set security headers
 app.use(helmet());
@@ -99,8 +97,6 @@ app.use('/api/tags', tagRoutes);
 app.use('/api/questions', questionRoutes);
 app.use('/api/exams', examRoutes);
 app.use('/api/quiz-attempts', quizAttemptRoutes);
-app.use('/api/performance', userPerformanceRoutes);
-app.use('/api/recommendations', examRecommendationRoutes);
 app.use('/api/learning-paths', learningPathRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
@@ -109,6 +105,11 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/payments/momo', momoRoutes);
 app.use('/api/payments/vnpay', vnpayRoutes);
 app.use('/api/payments', paymentRoutes);
+
+// Thêm route mới
+app.use('/api/learning', learningAnalyticsRoutes);
+
+
 
 // Error handler
 app.use(errorHandler);

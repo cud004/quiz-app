@@ -19,7 +19,6 @@ const examService = {
       topic,
       tag,
       searchText,
-      title,
       accessLevel,
       difficulty
     } = query;
@@ -29,12 +28,27 @@ const examService = {
     
     if (isPublished !== undefined) filter.isPublished = isPublished === 'true';
     if (createdBy) filter.createdBy = createdBy;
-    if (title) filter.title = { $regex: title, $options: 'i' };
     if (accessLevel) filter.accessLevel = accessLevel;
+    if (difficulty) filter.difficulty = difficulty;
     
     // Filter theo topic nếu có
     if (topic) {
-      filter.topics = new ObjectId(topic);
+      if (mongoose.Types.ObjectId.isValid(topic)) {
+        filter.topic = new ObjectId(topic);
+      } else {
+        // Nếu topic là tên, tìm theo tên
+        const topics = await Topic.find({
+          $or: [
+            { name: { $regex: topic, $options: 'i' } },
+            { description: { $regex: topic, $options: 'i' } }
+          ]
+        });
+        if (topics.length > 0) {
+          filter.topic = { $in: topics.map(t => t._id) };
+        } else {
+          filter.topic = { $in: [] };
+        }
+      }
     }
     
     // Filter theo tag nếu có
@@ -42,36 +56,26 @@ const examService = {
       filter.tags = new ObjectId(tag);
     }
     
-    // Filter theo độ khó nếu có
-    if (difficulty) {
-      filter.difficulty = difficulty;
-    }
-    
     // Text search nếu có
     let textSearchOptions = {};
     if (searchText) {
-      filter.$text = { $search: searchText };
+      filter.$or = [
+        { title: { $regex: searchText, $options: 'i' } },
+        { description: { $regex: searchText, $options: 'i' } }
+      ];
       textSearchOptions.score = { $meta: 'textScore' };
     }
     
     // Xác định cách sắp xếp
     let sortOptions = {};
     if (searchText) {
-      // Nếu đang text search, ưu tiên sắp xếp theo độ phù hợp
       sortOptions = { score: { $meta: 'textScore' } };
     } else {
       sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
     }
-    // if (!user || (user.role !== 'admin' && (!user.subscription || user.subscription.status !== 'active'))) {
-    //   // Chỉ trả về exam free hoặc do chính user tạo
-    //   filter.$or = [
-    //     { accessLevel: 'free' },
-    //     { createdBy: user ? user._id : null }
-    //   ];
-    // }
 
     const exams = await Exam.find(filter, textSearchOptions)
-      .populate('topics', 'name category')
+      .populate('topic', 'name category')
       .populate('tags', 'name category')
       .populate('createdBy', 'name')
       .sort(sortOptions)
@@ -94,14 +98,13 @@ const examService = {
   // Lấy đề thi theo ID
   async getExamById(id, includeAnswers = false) {
     const exam = await Exam.findById(id)
-      .populate('topics', 'name description category')
+      .populate('topic', 'name description category')
       .populate('tags', 'name category')
       .populate('createdBy', 'name')
       .populate({
         path: 'questions.question',
         select: includeAnswers ? '' : '-correctAnswer',
         populate: [
-          { path: 'topics', select: 'name' },
           { path: 'tags', select: 'name' }
         ]
       });
@@ -135,19 +138,17 @@ const examService = {
       // Nếu tên đã tồn tại, thêm hậu tố để phân biệt
       if (existingExam) {
         const count = await Exam.countDocuments({
-          title: new RegExp(`^${examData.title}( \\(\\d+\\))?$`),
+          title: new RegExp(`^${examData.title}( \(\d+\))?$`),
           createdBy: examData.createdBy
         });
         examData.title = `${examData.title} (${count + 1})`;
       }
       
-      // Kiểm tra các topic và tag tồn tại
-      if (examData.topics && examData.topics.length > 0) {
-        for (const topicId of examData.topics) {
-          const topic = await Topic.findById(topicId);
-          if (!topic) {
-            throw new Error(`Topic with ID ${topicId} not found`);
-          }
+      // Kiểm tra topic tồn tại
+      if (examData.topic) {
+        const topic = await Topic.findById(examData.topic);
+        if (!topic) {
+          throw new Error(`Topic with ID ${examData.topic} not found`);
         }
       }
       
@@ -229,20 +230,18 @@ const examService = {
         if (existingExam) {
           const count = await Exam.countDocuments({
             _id: { $ne: id },
-            title: new RegExp(`^${updateData.title}( \\(\\d+\\))?$`),
+            title: new RegExp(`^${updateData.title}( \(\d+\))?$`),
             createdBy: exam.createdBy
           });
           updateData.title = `${updateData.title} (${count + 1})`;
         }
       }
       
-      // Kiểm tra các topic và tag tồn tại
-      if (updateData.topics) {
-        for (const topicId of updateData.topics) {
-          const topic = await Topic.findById(topicId);
-          if (!topic) {
-            throw new Error(`Topic with ID ${topicId} not found`);
-          }
+      // Kiểm tra topic tồn tại
+      if (updateData.topic) {
+        const topic = await Topic.findById(updateData.topic);
+        if (!topic) {
+          throw new Error(`Topic with ID ${updateData.topic} not found`);
         }
       }
       
@@ -367,15 +366,14 @@ const examService = {
       title,
       description,
       questionCount,
-      topics = [],
+      topic,
       tags = [],
       difficulty,
       difficultyDistribution,
       pointsDistribution = 'equal',
       timeLimit,
       accessLevel = 'free',
-      createdBy,
-      passingScore = 50
+      createdBy
     } = options;
     
     // Validate inputs
@@ -387,11 +385,11 @@ const examService = {
       throw new Error('Creator ID is required');
     }
     
-    // Đếm số lượng câu hỏi khả dụng cho mỗi chủ đề
-    const questionStats = await questionService.countQuestionsByTopics(topics);
+    // Đếm số lượng câu hỏi khả dụng cho chủ đề
+    const questionStats = await questionService.countQuestionsByTopic(topic);
     
     if (questionStats.total < questionCount) {
-      throw new Error(`Not enough questions available. Requested ${questionCount}, but only ${questionStats.total} found for the selected topics.`);
+      throw new Error(`Not enough questions available. Requested ${questionCount}, but only ${questionStats.total} found for the selected topic.`);
     }
     
     // Cung cấp thông tin chi tiết về số lượng câu hỏi khả dụng
@@ -406,14 +404,11 @@ const examService = {
       isActive: true
     };
     
-    if (topics && topics.length > 0) {
-      // Chuyển đổi mảng chuỗi ID thành mảng ObjectId
-      const topicIds = topics.map(id => new ObjectId(id));
-      filter.topics = { $in: topicIds };
+    if (topic) {
+      filter.topic = new ObjectId(topic);
     }
     
     if (tags && tags.length > 0) {
-      // Chuyển đổi mảng chuỗi ID thành mảng ObjectId
       const tagIds = tags.map(id => new ObjectId(id));
       filter.tags = { $in: tagIds };
     }
@@ -521,8 +516,8 @@ const examService = {
     let examTitle = title;
     if (!examTitle) {
       // Nếu có một topic duy nhất, sử dụng tên topic
-      if (topics && topics.length === 1) {
-        const topic = await Topic.findById(topics[0]);
+      if (topic) {
+        const topic = await Topic.findById(topic);
         if (topic) {
           examTitle = `${topic.name} Exam`;
         }
@@ -543,7 +538,7 @@ const examService = {
     // Nếu tên đã tồn tại, thêm hậu tố để phân biệt
     if (existingExam) {
       const count = await Exam.countDocuments({
-        title: new RegExp(`^${examTitle}( \\(\\d+\\))?$`),
+        title: new RegExp(`^${examTitle}( \(\d+\))?$`),
         createdBy: createdBy
       });
       examTitle = `${examTitle} (${count + 1})`;
@@ -564,11 +559,11 @@ const examService = {
         examDescription += ` of mixed difficulty`;
       }
       
-      // Thêm thông tin về topics
-      if (topics && topics.length > 0) {
-        const topicNames = await Topic.find({ _id: { $in: topics } }, 'name');
-        if (topicNames.length > 0) {
-          examDescription += ` on topics: ${topicNames.map(t => t.name).join(', ')}`;
+      // Thêm thông tin về topic
+      if (topic) {
+        const topicName = await Topic.findById(topic, 'name');
+        if (topicName.length > 0) {
+          examDescription += ` on topic: ${topicName[0].name}`;
         }
       }
     }
@@ -598,12 +593,11 @@ const examService = {
       description: examDescription,
       timeLimit: suggestedTimeLimit,
       questions: examQuestions,
-      topics: topics || [],
+      topic: topic || null,
       tags: tags || [],
       accessLevel,
       createdBy,
-      randomizeQuestions: true, // Mặc định bật tính năng xáo trộn câu hỏi
-      passingScore: passingScore
+      randomizeQuestions: true // Mặc định bật tính năng xáo trộn câu hỏi
     };
     
     const exam = await this.createExam(examData);
@@ -670,7 +664,7 @@ const examService = {
     // Nếu tên đã tồn tại, thêm hậu tố để phân biệt
     if (existingExam) {
       const count = await Exam.countDocuments({
-        title: new RegExp(`^Copy of ${originalExam.title}( \\(\\d+\\))?$`),
+        title: new RegExp(`^Copy of ${originalExam.title}( \(\d+\))?$`),
         createdBy
       });
       examData.title = `Copy of ${originalExam.title} (${count + 1})`;

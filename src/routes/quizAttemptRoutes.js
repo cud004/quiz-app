@@ -18,6 +18,11 @@ const {
 // Tất cả route đều yêu cầu người dùng đăng nhập
 router.use(protect);
 
+// Lấy lịch sử tổng hợp các đề đã làm
+router.get('/history/summary', quizAttemptController.getUserExamHistorySummary);
+// Lấy các lượt làm với 1 đề thi
+router.get('/history', quizAttemptController.getUserExamAttempts);
+
 // Bắt đầu làm bài kiểm tra
 router.post('/start', 
   validateRequest(startQuizValidation), 
@@ -58,6 +63,12 @@ router.get('/:id/result',
 router.post('/:id/feedback', 
   validateRequest(addFeedbackValidation),
   quizAttemptController.addFeedback
+);
+
+// Lấy kết quả tổng quan bài làm
+router.get('/:id/summary', 
+  validateRequest(getQuizResultValidation),
+  quizAttemptController.getQuizSummary
 );
 
 module.exports = router; 

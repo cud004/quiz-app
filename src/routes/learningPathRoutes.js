@@ -13,15 +13,15 @@ router.get('/', learningPathController.getLearningPath);
 router.post('/update', learningPathController.updateLearningPath);
 
 // Thêm một chủ đề vào lộ trình học tập
-router.post('/topics', learningPathController.addTopicToPath);
+router.post('/topic', learningPathController.addTopicToPath);
 
 // Cập nhật tiến độ cho một chủ đề trong lộ trình
-router.patch('/topics/:topicId/progress', learningPathController.updateTopicProgress);
+router.patch('/topic/:topicId/progress', learningPathController.updateTopicProgress);
 
 // Cập nhật ưu tiên cho một chủ đề trong lộ trình
-router.patch('/topics/:topicId/priority', learningPathController.updateTopicPriority);
+router.patch('/topic/:topicId/priority', learningPathController.updateTopicPriority);
 
 // Xóa một chủ đề khỏi lộ trình học tập
-router.delete('/topics/:topicId', learningPathController.removeTopicFromPath);
+router.delete('/topic/:topicId', learningPathController.removeTopicFromPath);
 
 module.exports = router; 

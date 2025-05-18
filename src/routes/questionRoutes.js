@@ -17,20 +17,20 @@ const {
 const questionService = require('../services/question/questionService');
 const ApiResponse = require('../utils/apiResponse');
 
-// Public routes
+// Lấy danh sách câu hỏi
 router.get('/', 
   validateRequest(getQuestionsValidation), 
   questionController.getQuestions
 );
 
-// Protected routes
+// Lấy thông tin chi tiết câu hỏi
 router.get('/:id',
-  protect, // Người dùng phải đăng nhập để xem chi tiết câu hỏi
+  protect,
   validateRequest(getQuestionValidation),
   questionController.getQuestion
 );
 
-// Stats update
+// Cập nhật thống kê câu hỏi
 router.post('/:id/stats',
   protect,
   validateRequest({
@@ -43,7 +43,7 @@ router.post('/:id/stats',
   questionController.updateStats
 );
 
-// Admin routes
+// Import câu hỏi (admin only)
 router.post('/import', 
   protect,
   authorize(['admin']), 
@@ -51,6 +51,7 @@ router.post('/import',
   questionController.importQuestions
 );
 
+// Tạo câu hỏi mới (admin only)
 router.post('/', 
   protect,
   authorize(['admin']), 
@@ -58,6 +59,7 @@ router.post('/',
   questionController.createQuestion
 );
 
+// Cập nhật câu hỏi (admin only)
 router.put('/:id', 
   protect,
   authorize(['admin']), 
@@ -65,6 +67,7 @@ router.put('/:id',
   questionController.updateQuestion
 );
 
+// Xóa câu hỏi (admin only)
 router.delete('/:id', 
   protect,
   authorize(['admin']), 
@@ -72,16 +75,15 @@ router.delete('/:id',
   questionController.deleteQuestion
 );
 
-// Thêm route mới để đếm số câu hỏi theo chủ đề
-router.get('/count-by-topics',
+// Thống kê số câu hỏi theo chủ đề
+router.get('/count-by-topic',
   protect,
   async (req, res) => {
     try {
-      const { topics } = req.query;
-      const topicIds = topics ? topics.split(',') : [];
+      const { topic } = req.query;
       const isActiveOnly = req.query.activeOnly !== 'false';
       
-      const stats = await questionService.countQuestionsByTopics(topicIds, isActiveOnly);
+      const stats = await questionService.countQuestionsByTopic(topic, isActiveOnly);
       
       return ApiResponse.success(
         res,

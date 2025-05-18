@@ -3,6 +3,7 @@ const QuizAttempt = require('../models/QuizAttempt');
 const Exam = require('../models/Exam');
 const User = require('../models/User');
 const ApiResponse = require('../utils/apiResponse');
+const ImageService = require('../services/user/imageService');
 
 // @desc    Get all users
 // @route   GET /api/users
@@ -55,16 +56,72 @@ const createUser = async (req, res) => {
 // @access  Private/Admin
 const updateUser = async (req, res) => {
   try {
-    const user = await User.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true
-    }).select('-password');
+    const updateData = { ...req.body };
+    
+    // Xử lý upload ảnh nếu có
+    if (req.file) {
+      const imageData = await ImageService.uploadImage(
+        req.file.buffer,
+        req.file.originalname
+      );
+      updateData.profileImage = {
+        url: imageData.url,
+        thumbnailUrl: imageData.thumbnailUrl,
+        fileId: imageData.fileId,
+        uploadedAt: new Date()
+      };
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.params.id, 
+      updateData,
+      {
+        new: true,
+        runValidators: true
+      }
+    ).select('-password');
     
     if (!user) {
       return ApiResponse.notFound(res, 'User not found');
     }
     
     return ApiResponse.success(res, user, 'User updated successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message);
+  }
+};
+
+// @desc    Update profile (for current user)
+// @route   PUT /api/users/profile
+// @access  Private
+const updateProfile = async (req, res) => {
+  try {
+    const updateData = { ...req.body };
+    
+    // Xử lý upload ảnh nếu có
+    if (req.file) {
+      const imageData = await ImageService.uploadImage(
+        req.file.buffer,
+        req.file.originalname
+      );
+      updateData.profileImage = {
+        url: imageData.url,
+        thumbnailUrl: imageData.thumbnailUrl,
+        fileId: imageData.fileId,
+        uploadedAt: new Date()
+      };
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      updateData,
+      {
+        new: true,
+        runValidators: true
+      }
+    ).select('-password');
+
+    return ApiResponse.success(res, user, 'Profile updated successfully');
   } catch (error) {
     return ApiResponse.error(res, error.message);
   }
@@ -196,15 +253,79 @@ const restoreUser = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Upload profile image
+ * @route   POST /api/users/profile/image
+ * @access  Private
+ */
+const uploadProfileImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return ApiResponse.badRequest(res, 'Please upload an image file');
+    }
+
+    // Upload to ImageKit
+    const imageData = await ImageService.uploadImage(
+      req.file.buffer,
+      req.file.originalname
+    );
+
+    // Update user profile
+    const user = await User.findById(req.user.id);
+    await user.updateProfileImage(imageData);
+
+    return ApiResponse.success(
+      res,
+      {
+        profileImage: user.profileImage
+      },
+      'Profile image uploaded successfully'
+    );
+  } catch (error) {
+    return ApiResponse.error(res, error.message);
+  }
+};
+
+/**
+ * @desc    Remove profile image
+ * @route   DELETE /api/users/profile/image
+ * @access  Private
+ */
+const removeProfileImage = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+
+    if (user.profileImage && user.profileImage.fileId) {
+      // Delete from ImageKit
+      await ImageService.deleteImage(user.profileImage.fileId);
+    }
+
+    // Remove from user profile
+    await user.removeProfileImage();
+
+    return ApiResponse.success(
+      res,
+      null,
+      'Profile image removed successfully'
+    );
+  } catch (error) {
+    return ApiResponse.error(res, error.message);
+  }
+};
+
 module.exports = {
   getUsers,
   getUser,
+  createUser,
   updateUser,
+  updateProfile,
   deleteUser,
-  restoreUser,
   getDeletedUsers,
   hardDeleteUser,
   getUserStats,
   updatePreferences,
-  toggleFavoriteExam
+  toggleFavoriteExam,
+  restoreUser,
+  uploadProfileImage,
+  removeProfileImage
 }; 

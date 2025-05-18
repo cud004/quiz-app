@@ -48,12 +48,6 @@ const examSchema = new mongoose.Schema({
     min: [1, 'Time limit must be at least 1 minute'],
     max: [300, 'Time limit cannot be longer than 300 minutes (5 hours)']
   },
-  passingScore: {
-    type: Number,
-    default: 50, // percentage
-    min: [0, 'Passing score cannot be negative'],
-    max: [100, 'Passing score cannot be greater than 100%']
-  },
   questions: [examQuestionSchema],
   totalPoints: {
     type: Number,
@@ -84,10 +78,11 @@ const examSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Tag'
   }],
-  topics: [{
+  topic: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Topic'
-  }],
+    ref: 'Topic',
+    required: true
+  },
   accessLevel: {
     type: String,
     enum: ['free', 'premium', 'private'],
@@ -160,7 +155,7 @@ examSchema.post('save', async function() {
 });
 
 // Index fields for efficient queries
-examSchema.index({ topics: 1 });
+examSchema.index({ topic: 1 });
 examSchema.index({ createdBy: 1 });
 examSchema.index({ tags: 1 });
 examSchema.index({ isPublished: 1 });

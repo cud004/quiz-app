@@ -60,12 +60,10 @@ const questionSchema = Joi.object({
       'number.integer': 'Points must be an integer',
       'number.min': 'Points must be at least 1'
     }),
-  topics: Joi.array().items(
-    Joi.string().regex(/^[0-9a-fA-F]{24}$/)
-      .messages({
-        'string.pattern.base': 'Topic ID must be a valid MongoDB ObjectId'
-      })
-  ),
+  topic: Joi.string().regex(/^[0-9a-fA-F]{24}$/)
+    .messages({
+      'string.pattern.base': 'Topic ID must be a valid MongoDB ObjectId'
+    }),
   tags: Joi.array().items(
     Joi.string().regex(/^[0-9a-fA-F]{24}$/)
       .messages({
@@ -77,7 +75,7 @@ const questionSchema = Joi.object({
 
 // Question update schema
 const questionUpdateSchema = questionSchema.fork(
-  ['content', 'options', 'correctAnswer', 'explanation', 'difficulty', 'points', 'topics', 'tags', 'isActive'],
+  ['content', 'options', 'correctAnswer', 'explanation', 'difficulty', 'points', 'topic', 'tags', 'isActive'],
   (schema) => schema.optional()
 );
 

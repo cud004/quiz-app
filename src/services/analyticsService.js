@@ -518,23 +518,88 @@ const analyticsService = {
    */
   async collectTopicsData(startDate, endDate) {
     // Tổng số chủ đề
-    const total = await Topic.countDocuments();
+    const total = await Topic.countDocuments({
+      'deleted.isDeleted': false
+    });
     
-    // Chủ đề phổ biến nhất
-    const mostPopular = await Topic.find()
-      .sort({ 'performanceStats.totalAttempts': -1 })
-      .limit(5)
-      .select('_id name performanceStats.totalAttempts');
+    // Chủ đề mới trong khoảng thời gian
+    const newTopics = await Topic.countDocuments({
+      createdAt: { $gte: startDate, $lte: endDate },
+      'deleted.isDeleted': false
+    });
     
-    const mostPopularData = mostPopular.map(topic => ({
-      topic: topic._id,
-      name: topic.name,
-      attemptCount: topic.performanceStats?.totalAttempts || 0
-    }));
+    // Chủ đề theo trạng thái
+    const topicsByStatus = await Topic.aggregate([
+      {
+        $match: {
+          'deleted.isDeleted': false
+        }
+      },
+      {
+        $group: {
+          _id: '$isActive',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+    
+    const byStatus = {
+      active: 0,
+      inactive: 0
+    };
+    
+    topicsByStatus.forEach(item => {
+      if (item._id) {
+        byStatus.active = item.count;
+      } else {
+        byStatus.inactive = item.count;
+      }
+    });
+    
+    // Chủ đề theo độ khó
+    const topicsByDifficulty = await Topic.aggregate([
+      {
+        $match: {
+          'deleted.isDeleted': false
+        }
+      },
+      {
+        $group: {
+          _id: '$difficulty',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+    
+    const byDifficulty = {
+      easy: 0,
+      medium: 0,
+      hard: 0
+    };
+    
+    topicsByDifficulty.forEach(item => {
+      if (item._id in byDifficulty) {
+        byDifficulty[item._id] = item.count;
+      }
+    });
+    
+    // Chủ đề phổ biến
+    const popularTopics = await Topic.find({
+      'deleted.isDeleted': false
+    })
+    .sort('-questionCount')
+    .limit(5)
+    .select('name questionCount');
     
     return {
       total,
-      mostPopular: mostPopularData
+      newTopics,
+      byStatus,
+      byDifficulty,
+      popular: popularTopics.map(topic => ({
+        name: topic.name,
+        questionCount: topic.questionCount
+      }))
     };
   },
   
@@ -609,82 +674,36 @@ const analyticsService = {
    * @returns {Object} Báo cáo tổng quan
    */
   async getSystemOverview() {
-    // Thu thập dữ liệu tổng quan
+    const now = new Date();
+    const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30);
+    
+    // Thu thập dữ liệu
     const [
-      usersCount,
-      examsCount,
-      questionsCount,
-      quizAttemptsCount,
-      totalRevenue,
-      topicsCount
+      usersData,
+      examsData,
+      questionsData,
+      quizAttemptsData,
+      revenueData,
+      topicsData,
+      systemPerformanceData
     ] = await Promise.all([
-      User.countDocuments({ 'deleted.isDeleted': false }),
-      Exam.countDocuments(),
-      Question.countDocuments(),
-      QuizAttempt.countDocuments(),
-      Payment.aggregate([
-        {
-          $match: { status: 'completed' }
-        },
-        {
-          $group: {
-            _id: null,
-            total: { $sum: '$totalAmount' }
-          }
-        }
-      ]),
-      Topic.countDocuments()
+      this.collectUsersData(startDate, now),
+      this.collectExamsData(startDate, now),
+      this.collectQuestionsData(startDate, now),
+      this.collectQuizAttemptsData(startDate, now),
+      this.collectRevenueData(startDate, now),
+      this.collectTopicsData(startDate, now),
+      this.collectSystemPerformanceData(startDate, now)
     ]);
     
-    // Người dùng mới trong 7 ngày qua
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
-    const newUsersCount = await User.countDocuments({
-      createdAt: { $gte: sevenDaysAgo },
-      'deleted.isDeleted': false
-    });
-    
-    // Các đề thi phổ biến nhất
-    const popularExams = await Exam.find()
-      .sort({ attemptCount: -1 })
-      .limit(5)
-      .select('title attemptCount');
-    
-    // Các chủ đề phổ biến nhất
-    const popularTopics = await Topic.find()
-      .sort({ 'performanceStats.totalAttempts': -1 })
-      .limit(5)
-      .select('name performanceStats.totalAttempts');
-    
     return {
-      users: {
-        total: usersCount,
-        newLast7Days: newUsersCount
-      },
-      exams: {
-        total: examsCount,
-        popular: popularExams.map(exam => ({
-          title: exam.title,
-          attempts: exam.attemptCount || 0
-        }))
-      },
-      questions: {
-        total: questionsCount
-      },
-      quizAttempts: {
-        total: quizAttemptsCount
-      },
-      revenue: {
-        total: totalRevenue.length > 0 ? totalRevenue[0].total : 0
-      },
-      topics: {
-        total: topicsCount,
-        popular: popularTopics.map(topic => ({
-          name: topic.name,
-          attempts: topic.performanceStats?.totalAttempts || 0
-        }))
-      }
+      users: usersData,
+      exams: examsData,
+      questions: questionsData,
+      quizAttempts: quizAttemptsData,
+      revenue: revenueData,
+      topics: topicsData,
+      systemPerformance: systemPerformanceData
     };
   },
   

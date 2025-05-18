@@ -60,11 +60,11 @@ const quizAttemptService = {
       .populate('exam', 'title description timeLimit questions')
       .populate({
         path: 'answers.question',
-        select: 'content options correctAnswer explanation',
+        select: 'content options',
       })
       .populate({
         path: 'exam.questions.question',
-        select: 'content options difficulty correctAnswer explanation',
+        select: 'content options difficulty',
       });
     
     if (!quizAttempt) {
@@ -87,11 +87,11 @@ const quizAttemptService = {
           .populate('exam', 'title description timeLimit questions')
           .populate({
             path: 'answers.question',
-            select: 'content options correctAnswer explanation',
+            select: 'content options',
           })
           .populate({
             path: 'exam.questions.question',
-            select: 'content options difficulty correctAnswer explanation',
+            select: 'content options difficulty',
           });
       }
     }
@@ -259,7 +259,7 @@ const quizAttemptService = {
     
     try {
       const quizAttempt = await QuizAttempt.findById(attemptId)
-        .populate('exam', 'questions totalPoints passingScore')
+        .populate('exam', 'questions totalPoints')
         .session(session);
       
       if (!quizAttempt) {
@@ -347,7 +347,6 @@ const quizAttemptService = {
         wrongAnswers: incorrectCount,
         skippedQuestions: skippedCount,
         timeSpent: quizAttempt.timeSpent,
-        passed: quizAttempt.score >= quizAttempt.exam.passingScore,
         autoCompleted: autoComplete
       };
       
@@ -361,89 +360,164 @@ const quizAttemptService = {
   
   // Lấy kết quả chi tiết của một lần làm bài
   async getQuizAttemptResult(attemptId, userId) {
-    const quizAttempt = await QuizAttempt.findById(attemptId)
-      .populate('exam', 'title description questions totalPoints passingScore timeLimit')
-      .populate({
-        path: 'answers.question',
-        select: 'content options difficulty correctAnswer explanation'
-      })
-      .populate({
-        path: 'exam.questions.question', 
-        select: 'content options difficulty correctAnswer explanation' 
-      });
-    
-    if (!quizAttempt) {
-      throw new Error('Quiz attempt not found');
-    }
-    
-    // Kiểm tra người dùng có quyền xem kết quả không
-    if (quizAttempt.user.toString() !== userId.toString()) {
-      throw new Error('You do not have permission to access this result');
-    }
-    
-    // Nếu bài làm chưa hoàn thành thì kiểm tra xem có hết thời gian chưa
-    if (quizAttempt.status === 'in_progress') {
-      const isTimeExpired = await this.checkTimeLimit(quizAttempt);
-      
-      if (isTimeExpired) {
-        // Tự động hoàn thành bài làm
-        await this.completeQuizAttempt(attemptId, userId, true);
-        // Lấy lại kết quả
-        return await this.getQuizAttemptResult(attemptId, userId);
-      } else {
-        throw new Error('This quiz attempt has not been completed');
+    try {
+      // 1. Lấy thông tin lần thi và exam
+      const quizAttempt = await QuizAttempt.findById(attemptId)
+        .populate({
+          path: 'exam',
+          select: 'title description questions totalPoints timeLimit'
+        })
+        .lean();
+
+      if (!quizAttempt) {
+        throw new Error('Quiz attempt not found');
       }
-    }
-    
-    // Kiểm tra xem có nộp bài sớm không và có nên ẩn đáp án không
-    const shouldHideDetailedResults = this.shouldHideDetailedResults(quizAttempt);
-    
-    // Nếu nộp bài sớm, ẩn đáp án chi tiết
-    if (shouldHideDetailedResults) {
-      // Tạo bản sao kết quả nhưng ẩn đáp án đúng và giải thích
-      const sanitizedResult = quizAttempt.toObject();
+
+      // 2. Kiểm tra quyền truy cập
+      if (quizAttempt.user.toString() !== userId.toString()) {
+        throw new Error('You do not have permission to access this result');
+      }
+
+      // 3. Lấy danh sách câu hỏi từ exam
+      const examQuestions = quizAttempt.exam.questions || [];
+      const questionIds = examQuestions.map(q => q.question);
       
-      // Ẩn correctAnswer và explanation
-      if (sanitizedResult.answers && sanitizedResult.answers.length > 0) {
-        sanitizedResult.answers.forEach(answer => {
+
+      // 4. Lấy thông tin chi tiết của tất cả câu hỏi
+      const questions = await Question.find(
+        { _id: { $in: questionIds } }
+      ).lean();
+     
+
+      // 5. Tạo map câu hỏi để dễ truy cập
+      const questionsMap = {};
+      questions.forEach(q => {
+        questionsMap[q._id.toString()] = q;
+      });
+   
+
+      // 6. Tạo map câu trả lời của user
+      const answersMap = {};
+      if (quizAttempt.answers && Array.isArray(quizAttempt.answers)) {
+        quizAttempt.answers.forEach(answer => {
           if (answer.question) {
-            // Chỉ hiển thị đáp án đã chọn và cả 2 câu trả lời đúng sai
-            delete answer.question.correctAnswer;
-            delete answer.question.explanation;
+            answersMap[answer.question.toString()] = answer;
           }
         });
       }
+    
+
+      // 7. Xử lý từng câu hỏi trong exam (KHÔNG filter(Boolean) nữa)
+      const questionsWithAnswers = examQuestions.map((examQuestion, index) => {
+        const questionId = examQuestion.question.toString();
+        const questionDetail = questionsMap[questionId];
+
+        if (!questionDetail) {
+          return {
+            questionId,
+            order: examQuestion.order ?? index,
+            points: examQuestion.points ?? 1,
+            content: '[Câu hỏi không tồn tại]',
+            options: [],
+            difficulty: null,
+            userAnswer: null,
+            correctAnswer: null,
+            correctAnswerText: null,
+            explanation: null,
+            isCorrect: false,
+            answered: false,
+            status: 'not_found',
+            hasPrev: index > 0,
+            hasNext: index < examQuestions.length - 1,
+            prevOrder: index > 0 ? index - 1 : null,
+            nextOrder: index < examQuestions.length - 1 ? index + 1 : null
+          };
+        }
+
+        const userAnswer = answersMap[questionId];
+        const correctOption = questionDetail.options.find(
+          opt => opt.label === questionDetail.correctAnswer
+        );
+
+        return {
+          questionId,
+          order: examQuestion.order ?? index,
+          points: examQuestion.points ?? 1,
+          content: questionDetail.content,
+          options: questionDetail.options,
+          difficulty: questionDetail.difficulty,
+          userAnswer: userAnswer ? userAnswer.selectedAnswer : null,
+          correctAnswer: questionDetail.correctAnswer,
+          correctAnswerText: correctOption ? correctOption.text : null,
+          explanation: questionDetail.explanation,
+          isCorrect: userAnswer ? userAnswer.isCorrect : false,
+          answered: !!userAnswer,
+          status: !userAnswer ? 'not_answered' : (userAnswer.isCorrect ? 'correct' : 'incorrect'),
+          hasPrev: index > 0,
+          hasNext: index < examQuestions.length - 1,
+          prevOrder: index > 0 ? index - 1 : null,
+          nextOrder: index < examQuestions.length - 1 ? index + 1 : null
+        };
+      });
+     
+
+      // 8. Sắp xếp câu hỏi theo thứ tự
+      questionsWithAnswers.sort((a, b) => a.order - b.order);
+
+      // 9. Tạo trạng thái cho từng câu hỏi
+      const questionStatus = questionsWithAnswers.map(q => ({
+        order: q.order,
+        questionId: q.questionId,
+        answered: q.answered,
+        userAnswer: q.userAnswer
+      }));
+    
+
+      // 10. Tính toán điểm và thống kê
+      const totalPoints = examQuestions.reduce((sum, q) => sum + (q.points ?? 1), 0);
+      const earnedPoints = questionsWithAnswers.reduce((sum, q) =>
+        sum + (q.isCorrect ? (q.points ?? 1) : 0), 0);
+
+      // 11. Tạo response
+      const response = {
+        _id: quizAttempt._id,
+        user: quizAttempt.user,
+        exam: {
+          _id: quizAttempt.exam._id,
+          title: quizAttempt.exam.title,
+          description: quizAttempt.exam.description,
+          timeLimit: quizAttempt.exam.timeLimit,
+          totalPoints: totalPoints
+        },
+        score: quizAttempt.score ?? 0,
+        startTime: quizAttempt.startTime,
+        endTime: quizAttempt.endTime,
+        timeSpent: quizAttempt.timeSpent ?? 0,
+        correctAnswers: quizAttempt.correctAnswers ?? 0,
+        wrongAnswers: quizAttempt.wrongAnswers ?? 0,
+        skippedQuestions: quizAttempt.skippedQuestions ?? examQuestions.length,
+        status: quizAttempt.status ?? 'completed',
+        autoCompleted: quizAttempt.autoCompleted ?? false,
+        completed: quizAttempt.completed ?? false,
+        reviewed: quizAttempt.reviewed ?? false,
+        resultSummary: {
+          totalPoints: totalPoints,
+          earnedPoints: earnedPoints,
+          correctCount: questionsWithAnswers.filter(q => q.isCorrect).length,
+          incorrectCount: questionsWithAnswers.filter(q => q.answered && !q.isCorrect).length,
+          skippedCount: questionsWithAnswers.filter(q => !q.answered).length
+        },
+        questionsWithAnswers,
+        questionStatus,
+        totalQuestions: questionsWithAnswers.length,
+        answeredCount: questionsWithAnswers.filter(q => q.answered).length
+      };
       
-      // Thêm thông tin là kết quả đã được ẩn
-      sanitizedResult.isDetailedResultsHidden = true;
-      sanitizedResult.message = 'Detailed results are hidden until the time limit expires';
-      
-      return sanitizedResult;
+      return response;
+    } catch (error) {
+      console.error('Error in getQuizAttemptResult:', error);
+      throw error;
     }
-    
-    // Trả về kết quả đầy đủ
-    return quizAttempt;
-  },
-  
-  // Kiểm tra xem có nên ẩn kết quả chi tiết không
-  shouldHideDetailedResults(quizAttempt) {
-    // Nếu nộp bài do hết thời gian (tự động hoàn thành), cho xem kết quả chi tiết
-    if (quizAttempt.status === 'completed' && quizAttempt.autoCompleted) {
-      return false;
-    }
-    
-    const startTime = new Date(quizAttempt.startTime);
-    const endTime = new Date(quizAttempt.endTime);
-    const timeLimit = quizAttempt.exam.timeLimit; // Số phút cho phép
-    
-    // Chuyển đổi thành milliseconds
-    const timeLimitMs = timeLimit * 60 * 1000;
-    
-    // Tính thời gian sử dụng
-    const usedTime = endTime - startTime;
-    
-    // Nếu sử dụng ít hơn 80% thời gian được cấp
-    return usedTime < (timeLimitMs * 0.8);
   },
   
   // Thêm đánh giá về bài kiểm tra
@@ -470,6 +544,158 @@ const quizAttemptService = {
     await quizAttempt.save();
     
     return quizAttempt;
+  },
+  
+  // Kiểm tra xem có nên ẩn kết quả chi tiết hay không
+  async shouldHideDetailedResults(quizAttempt) {
+    // Luôn hiển thị kết quả chi tiết
+    return false;
+  },
+  
+  async getQuizAttemptSummary(attemptId, userId) {
+    // 1. Lấy thông tin lần thi và exam
+    const quizAttempt = await QuizAttempt.findById(attemptId)
+      .populate({
+        path: 'exam',
+        select: 'title description questions totalPoints timeLimit topic',
+        populate: {
+          path: 'questions.question',
+          select: 'tags content',
+          populate: [
+            { path: 'tags', select: 'name' }
+          ]
+        }
+      })
+      .populate({
+        path: 'answers.question',
+        select: 'tags'
+      })
+      .populate({
+        path: 'exam.topic',
+        select: 'name'
+      })
+      .lean();
+
+    if (!quizAttempt) {
+      throw new Error('Quiz attempt not found');
+    }
+    if (quizAttempt.user.toString() !== userId.toString()) {
+      throw new Error('You do not have permission to access this result');
+    }
+
+    // Tổng số câu, số câu đúng, sai
+    const totalQuestions = quizAttempt.exam.questions.length;
+    const correctAnswers = quizAttempt.correctAnswers || 0;
+    const wrongAnswers = quizAttempt.wrongAnswers || 0;
+    const timeSpent = quizAttempt.timeSpent || 0;
+    const score = quizAttempt.score || 0;
+
+    // Map câu trả lời theo questionId
+    const answersMap = {};
+    (quizAttempt.answers || []).forEach(ans => {
+      if (ans.question) answersMap[ans.question.toString()] = ans;
+    });
+
+    // Phân tích theo tag
+    const tagStats = {};
+    for (const examQ of quizAttempt.exam.questions) {
+      const q = examQ.question;
+      const qId = q._id ? q._id.toString() : q.toString();
+      const answer = answersMap[qId];
+      const isCorrect = answer ? answer.isCorrect : false;
+      // Tags
+      if (q.tags && Array.isArray(q.tags)) {
+        for (const tag of q.tags) {
+          const tagId = tag._id ? tag._id.toString() : tag.toString();
+          const tagName = tag.name || tagId;
+          if (!tagStats[tagId]) tagStats[tagId] = { tagId, tagName, correct: 0, total: 0 };
+          tagStats[tagId].total++;
+          if (isCorrect) tagStats[tagId].correct++;
+        }
+      }
+    }
+    // Tính phần trăm
+    const tagAnalysis = Object.values(tagStats).map(t => ({
+      ...t,
+      percent: t.total > 0 ? Math.round((t.correct / t.total) * 100) : 0
+    }));
+
+    // Phân tích theo topic (chỉ 1 topic của exam)
+    let topicAnalysis = [];
+    if (quizAttempt.exam.topic) {
+      topicAnalysis = [{
+        topicId: quizAttempt.exam.topic._id ? quizAttempt.exam.topic._id.toString() : quizAttempt.exam.topic.toString(),
+        topicName: quizAttempt.exam.topic.name || '',
+        correct: correctAnswers,
+        total: totalQuestions,
+        percent: totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0
+      }];
+    }
+
+    return {
+      score,
+      totalQuestions,
+      correctAnswers,
+      wrongAnswers,
+      timeSpent,
+      topicAnalysis,
+      tagAnalysis
+    };
+  },
+  
+  // Lịch sử tổng hợp các đề đã làm
+  async getUserExamHistorySummary(userId) {
+    // Lấy tất cả quizAttempt của user
+    const attempts = await QuizAttempt.find({ user: userId, status: 'completed' })
+      .populate({ path: 'exam', select: 'title topic' })
+      .sort({ startTime: -1 })
+      .lean();
+    // Gom nhóm theo examId
+    const examMap = {};
+    for (const att of attempts) {
+      const examId = att.exam._id.toString();
+      if (!examMap[examId]) {
+        examMap[examId] = {
+          examId,
+          title: att.exam.title,
+          topic: att.exam.topic,
+          totalAttempts: 0,
+          bestScore: 0,
+          sumScore: 0,
+          lastAttempt: att.startTime
+        };
+      }
+      examMap[examId].totalAttempts++;
+      examMap[examId].bestScore = Math.max(examMap[examId].bestScore, att.score);
+      examMap[examId].sumScore += att.score;
+      if (att.startTime > examMap[examId].lastAttempt) {
+        examMap[examId].lastAttempt = att.startTime;
+      }
+    }
+    // Tính averageScore
+    const result = Object.values(examMap).map(e => ({
+      ...e,
+      averageScore: e.totalAttempts > 0 ? Math.round(e.sumScore / e.totalAttempts) : 0
+    }));
+    return result;
+  },
+
+  // Lấy các lượt làm với 1 đề thi
+  async getUserExamAttempts(userId, examId) {
+    const filter = { user: userId };
+    if (examId) filter.exam = examId;
+    const attempts = await QuizAttempt.find(filter)
+      .populate({ path: 'exam', select: 'title topic' })
+      .sort({ startTime: -1 })
+      .lean();
+    return attempts.map(a => ({
+      attemptId: a._id,
+      score: a.score,
+      startTime: a.startTime,
+      endTime: a.endTime,
+      status: a.status,
+      exam: a.exam
+    }));
   }
 };
 

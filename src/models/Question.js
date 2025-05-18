@@ -19,7 +19,14 @@ const QuestionSchema = new mongoose.Schema({
   correctAnswer: {
     type: String,
     required: [true, 'Please specify the correct answer'],
-    trim: true
+    trim: true,
+    validate: {
+      validator: function(value) {
+        // Kiểm tra correctAnswer phải là label của một trong các options
+        return this.options.some(option => option.label === value);
+      },
+      message: 'Correct answer must match one of the option labels'
+    }
   },
   explanation: {
     type: String,
@@ -35,10 +42,6 @@ const QuestionSchema = new mongoose.Schema({
     default: 1,
     min: 1
   },
-  topics: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Topic'
-  }],
   tags: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Tag'
@@ -74,28 +77,24 @@ const QuestionSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Thêm validator cho options
+QuestionSchema.path('options').validate(function(options) {
+  // Kiểm tra có ít nhất 2 options
+  if (!options || options.length < 2) {
+    return false;
+  }
+  
+  // Kiểm tra label không được trùng nhau
+  const labels = options.map(opt => opt.label);
+  return labels.length === new Set(labels).size;
+}, 'Question must have at least 2 unique options');
+
 // Indexes
-QuestionSchema.index({ topics: 1 });
 QuestionSchema.index({ tags: 1 });
 QuestionSchema.index({ difficulty: 1 });
-QuestionSchema.index({ createdBy: 1 });
 QuestionSchema.index({ isActive: 1 });
-QuestionSchema.index({ usageCount: -1 });
-QuestionSchema.index({ 'stats.correctRate': 1 });
-QuestionSchema.index({ 'stats.totalAttempts': -1 });
-
-// Text index cho tìm kiếm
-QuestionSchema.index({ 
-  content: 'text',
-  explanation: 'text',
-  'options.text': 'text'
-}, {
-  weights: {
-    content: 10,
-    explanation: 5,
-    'options.text': 3
-  },
-  name: 'question_text_search'
-});
+QuestionSchema.index({ createdBy: 1 });
+QuestionSchema.index({ 'stats.correctRate': -1 });
+QuestionSchema.index({ content: 'text' });
 
 module.exports = mongoose.model('Question', QuestionSchema);

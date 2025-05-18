@@ -75,12 +75,10 @@ const examSchema = Joi.object({
     .messages({
       'any.only': 'Access level must be one of: free, premium, private'
     }),
-  topics: Joi.array().items(
-    Joi.string().regex(/^[0-9a-fA-F]{24}$/)
-      .messages({
-        'string.pattern.base': 'Topic ID must be a valid MongoDB ObjectId'
-      })
-  ),
+  topic: Joi.string().regex(/^[0-9a-fA-F]{24}$/)
+    .messages({
+      'string.pattern.base': 'Topic ID must be a valid MongoDB ObjectId'
+    }),
   tags: Joi.array().items(
     Joi.string().regex(/^[0-9a-fA-F]{24}$/)
       .messages({
@@ -92,7 +90,7 @@ const examSchema = Joi.object({
 // Exam update schema (fork from main schema, making all fields optional)
 const examUpdateSchema = examSchema.fork(
   ['title', 'description', 'instructions', 'timeLimit', 'passingScore', 
-   'questions', 'isPublished', 'allowReview', 'randomizeQuestions', 'topics', 'tags', 'accessLevel'],
+   'questions', 'isPublished', 'allowReview', 'randomizeQuestions', 'topic', 'tags', 'accessLevel'],
   (schema) => schema.optional()
 );
 
@@ -107,27 +105,21 @@ const examIdParamSchema = Joi.object({
 
 // Exam search query schema
 const examSearchQuerySchema = Joi.object({
-  title: Joi.string(),
-  isPublished: Joi.boolean(),
-  accessLevel: Joi.string().valid('free', 'premium', 'private'),
-  createdBy: Joi.string().regex(/^[0-9a-fA-F]{24}$/)
-    .messages({
-      'string.pattern.base': 'Creator ID must be a valid MongoDB ObjectId'
-    }),
-  topic: Joi.string().regex(/^[0-9a-fA-F]{24}$/)
-    .messages({
-      'string.pattern.base': 'Topic ID must be a valid MongoDB ObjectId'
-    }),
-  tag: Joi.string().regex(/^[0-9a-fA-F]{24}$/)
-    .messages({
-      'string.pattern.base': 'Tag ID must be a valid MongoDB ObjectId'
-    }),
-  searchText: Joi.string(),
   page: Joi.number().min(1).default(1),
-  limit: Joi.number().min(1).max(100).default(10),
-  sortBy: Joi.string().valid('createdAt', 'title', 'timeLimit').default('createdAt'),
-  sortOrder: Joi.string().valid('asc', 'desc').default('desc')
-}).messages(customMessages);
+  limit: Joi.number().min(1).max(100).default(12),
+  sortBy: Joi.string().valid('createdAt', 'title', 'difficulty', 'attemptCount').default('createdAt'),
+  sortOrder: Joi.string().valid('asc', 'desc').default('desc'),
+  isPublished: Joi.boolean(),
+  createdBy: Joi.string().regex(/^[0-9a-fA-F]{24}$/),
+  topic: Joi.string(),
+  tag: Joi.string().regex(/^[0-9a-fA-F]{24}$/),
+  searchText: Joi.string(),
+  accessLevel: Joi.string().valid('free', 'premium'),
+  difficulty: Joi.string().valid('easy', 'medium', 'hard')
+}).messages({
+  'string.pattern.base': '{{#label}} must be a valid MongoDB ObjectId',
+  'any.only': '{{#label}} must be one of: {{#valids}}'
+});
 
 // Publish/Unpublish schema
 const examPublishSchema = Joi.object({
@@ -148,12 +140,10 @@ const randomExamSchema = Joi.object({
       'number.min': 'Question count must be at least 1',
       'any.required': 'Question count is required'
     }),
-  topics: Joi.array().items(
-    Joi.string().regex(/^[0-9a-fA-F]{24}$/)
-      .messages({
-        'string.pattern.base': 'Topic ID must be a valid MongoDB ObjectId'
-      })
-  ),
+  topic: Joi.string().regex(/^[0-9a-fA-F]{24}$/)
+    .messages({
+      'string.pattern.base': 'Topic ID must be a valid MongoDB ObjectId'
+    }),
   tags: Joi.array().items(
     Joi.string().regex(/^[0-9a-fA-F]{24}$/)
       .messages({

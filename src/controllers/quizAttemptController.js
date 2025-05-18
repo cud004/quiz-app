@@ -125,7 +125,7 @@ const quizAttemptController = {
         
         // Tạo đối tượng phản hồi với thông tin chi tiết
         responseData = {
-          ...quizAttempt.toObject(),
+          ...(quizAttempt.toObject ? quizAttempt.toObject() : quizAttempt),
           questionsWithDetail: questionsWithDetail,
           questionStatus: questionStatus,
           totalQuestions: questionsWithDetail.length,
@@ -272,73 +272,14 @@ const quizAttemptController = {
       const { id } = req.params;
       const userId = req.user._id;
       
+      // Lấy kết quả đã build sẵn từ service
       const quizAttempt = await quizAttemptService.getQuizAttemptResult(id, userId);
       
-      // Biến đổi dữ liệu để dễ sử dụng phía client
-      let responseData = quizAttempt;
-      
-      if (!quizAttempt.isDetailedResultsHidden) {
-        const questionsWithAnswers = [];
-        
-        if (quizAttempt.exam && quizAttempt.exam.questions) {
-          // Map câu trả lời theo ID câu hỏi để dễ truy cập
-          const answersMap = {};
-          if (quizAttempt.answers) {
-            quizAttempt.answers.forEach(answer => {
-              if (answer.question) {
-                answersMap[answer.question._id.toString()] = answer;
-              }
-            });
-          }
-          
-          // Lấy thông tin chi tiết cho mỗi câu hỏi
-          quizAttempt.exam.questions.forEach(examQuestion => {
-            const questionId = examQuestion.question && examQuestion.question._id ? 
-              examQuestion.question._id.toString() : examQuestion.question.toString();
-              
-            // Câu hỏi chi tiết
-            const questionDetail = examQuestion.question;
-            if (questionDetail) {
-              // Thông tin câu trả lời của người dùng
-              const userAnswer = answersMap[questionId] ? answersMap[questionId].selectedAnswer : null;
-              const isCorrect = answersMap[questionId] ? answersMap[questionId].isCorrect : false;
-              
-              questionsWithAnswers.push({
-                questionId: questionId,
-                order: examQuestion.order,
-                points: examQuestion.points,
-                content: questionDetail.content,
-                options: questionDetail.options,
-                correctAnswer: questionDetail.correctAnswer,
-                explanation: questionDetail.explanation,
-                difficulty: questionDetail.difficulty,
-                userAnswer: userAnswer,
-                isCorrect: isCorrect,
-                answered: userAnswer !== null
-              });
-            }
-          });
-        }
-        
-        // Sắp xếp câu hỏi theo thứ tự
-        questionsWithAnswers.sort((a, b) => a.order - b.order);
-        
-        // Tạo đối tượng phản hồi với thông tin chi tiết
-        responseData = {
-          ...quizAttempt.toObject(),
-          questionsWithAnswers
-        };
-      }
-      
-      // Kiểm tra xem có thông báo về việc ẩn kết quả chi tiết không
-      const message = quizAttempt.isDetailedResultsHidden 
-        ? 'Quiz result retrieved with limited details. Full details will be available after the time limit expires.' 
-        : 'Quiz result retrieved successfully';
-      
+      // Trả về nguyên trạng, không tự build lại nữa!
       return ApiResponse.success(
         res,
-        responseData,
-        message
+        quizAttempt,
+        'Quiz result retrieved successfully'
       );
     } catch (error) {
       if (error.message === 'Quiz attempt not found') {
@@ -379,6 +320,47 @@ const quizAttemptController = {
         return ApiResponse.forbidden(res, error.message);
       }
       
+      return ApiResponse.error(res, error.message);
+    }
+  },
+  
+  // Lấy kết quả tổng quan của một lần làm bài
+  getQuizSummary: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user._id;
+      const summary = await quizAttemptService.getQuizAttemptSummary(id, userId);
+      return ApiResponse.success(res, summary, 'Quiz summary retrieved successfully');
+    } catch (error) {
+      if (error.message === 'Quiz attempt not found') {
+        return ApiResponse.notFound(res, error.message);
+      }
+      if (error.message.includes('permission')) {
+        return ApiResponse.forbidden(res, error.message);
+      }
+      return ApiResponse.error(res, error.message);
+    }
+  },
+  
+  // Lấy lịch sử tổng hợp các đề đã làm
+  getUserExamHistorySummary: async (req, res) => {
+    try {
+      const userId = req.user._id;
+      const result = await quizAttemptService.getUserExamHistorySummary(userId);
+      return ApiResponse.success(res, result, 'Exam history summary retrieved successfully');
+    } catch (error) {
+      return ApiResponse.error(res, error.message);
+    }
+  },
+
+  // Lấy các lượt làm với 1 đề thi
+    getUserExamAttempts: async (req, res) => {
+    try {
+      const userId = req.user._id;
+      const { examId } = req.query;
+      const result = await quizAttemptService.getUserExamAttempts(userId, examId);
+      return ApiResponse.success(res, result, 'Exam attempts retrieved successfully');
+    } catch (error) {
       return ApiResponse.error(res, error.message);
     }
   }

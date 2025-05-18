@@ -23,13 +23,18 @@ const UserSchema = new mongoose.Schema({
   resetPasswordToken: String,
   resetPasswordExpire: Date,
   profileImage: {
-    type: String,
-    validate: {
-      validator: function (v) {
-        return /^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)$/.test(v);
-      },
-      message: 'Invalid profile image URL',
+    url: {
+      type: String,
+      validate: {
+        validator: function(v) {
+          return /^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)$/.test(v);
+        },
+        message: 'Invalid profile image URL'
+      }
     },
+    thumbnailUrl: String,
+    fileId: String,
+    uploadedAt: Date
   },
   role: {
     type: String,
@@ -117,8 +122,8 @@ const UserSchema = new mongoose.Schema({
   learningStats: {
     totalAttempts: { type: Number, default: 0 },
     averageScore: { type: Number, default: 0 },
-    weakTopics: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Topic' }],
-    strongTopics: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Topic' }],
+    weakTopic: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic' },
+    strongTopic: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic' },
     lastStudyDate: Date,
     studyStreak: { type: Number, default: 0 }
   },
@@ -139,10 +144,8 @@ const UserSchema = new mongoose.Schema({
     date: { type: Date, default: Date.now },
     score: { type: Number },
     attemptCount: { type: Number },
-    topics: [{
-      topic: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic' },
-      score: Number
-    }]
+    topic: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic' },
+    topicScore: Number
   }]
 }, {
   timestamps: true,
@@ -211,5 +214,22 @@ UserSchema.pre('findOne', function() {
     this.where({ 'deleted.isDeleted': false });
   }
 });
+
+// Add method to update profile image
+UserSchema.methods.updateProfileImage = async function(imageData) {
+  this.profileImage = {
+    url: imageData.url,
+    thumbnailUrl: imageData.thumbnailUrl,
+    fileId: imageData.fileId,
+    uploadedAt: new Date()
+  };
+  return this.save();
+};
+
+// Add method to remove profile image
+UserSchema.methods.removeProfileImage = async function() {
+  this.profileImage = undefined;
+  return this.save();
+};
 
 module.exports = mongoose.model('User', UserSchema);

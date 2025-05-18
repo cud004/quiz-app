@@ -24,10 +24,10 @@ const questionRoutes = require('./routes/questionRoutes');
 const examRoutes = require('./routes/examRoutes');
 const quizAttemptRoutes = require('./routes/quizAttemptRoutes');
 const learningAnalyticsRoutes = require('./routes/learningAnalyticsRoutes');
-const learningPathRoutes = require('./routes/learningPathRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const suggestionRoutes = require('./routes/suggestionRoutes');
 // Các cổng thanh toán được quản lý qua API chính
 const momoRoutes = require('./routes/momoRoutes');
 const vnpayRoutes = require('./routes/vnpayRoutes');
@@ -97,10 +97,9 @@ app.use('/api/tags', tagRoutes);
 app.use('/api/questions', questionRoutes);
 app.use('/api/exams', examRoutes);
 app.use('/api/quiz-attempts', quizAttemptRoutes);
-app.use('/api/learning-paths', learningPathRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
-
+app.use('/api/suggestions', suggestionRoutes);
 // Mount payment routes in specific order to avoid conflicts
 app.use('/api/payments/momo', momoRoutes);
 app.use('/api/payments/vnpay', vnpayRoutes);

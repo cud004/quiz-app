@@ -100,6 +100,6 @@ QuestionSchema.index({ difficulty: 1 });
 QuestionSchema.index({ isActive: 1 });
 QuestionSchema.index({ createdBy: 1 });
 QuestionSchema.index({ 'stats.correctRate': -1 });
-QuestionSchema.index({ content: 'text' });
+QuestionSchema.index({ content: 'text', 'options.text': 'text', correctAnswer: 'text' });
 
 module.exports = mongoose.model('Question', QuestionSchema);

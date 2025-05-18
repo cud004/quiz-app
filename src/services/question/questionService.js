@@ -30,17 +30,27 @@ const questionService = {
     
     // Filter theo topic nếu có
     if (topic) {
-      filter.topic = new ObjectId(topic);
+      if (Array.isArray(topic)) {
+        filter.topic = { $in: topic.map(id => new ObjectId(id)) };
+      } else {
+        filter.topic = new ObjectId(topic);
+      }
     }
     
     // Filter theo tag nếu có
     if (tag) {
-      filter.tags = new ObjectId(tag);
+      if (Array.isArray(tag)) {
+        filter.tags = { $in: tag.map(id => new ObjectId(id)) };
+      } else {
+        filter.tags = new ObjectId(tag);
+      }
     }
     
     // Text search nếu có
     let textSearchOptions = {};
     if (searchText) {
+      // Mở rộng $text index: cần tạo index ở model Question như sau:
+      // QuestionSchema.index({ content: 'text', 'options.text': 'text', correctAnswer: 'text' });
       filter.$text = { $search: searchText };
       textSearchOptions.score = { $meta: 'textScore' };
     }

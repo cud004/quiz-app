@@ -52,10 +52,11 @@ const learningAnalyticsService = {
     const completedAttempts = await QuizAttempt.find({ 
       user: userId,
       status: 'completed'
-    }).populate('exam', 'title');
+    }).populate('exam', 'title topic');
     
     // Nếu không có lần làm bài nào
     if (completedAttempts.length === 0) {
+      const totalTopics = await Topic.countDocuments();
       return {
         totalAttempts: 0,
         averageScore: 0,
@@ -64,7 +65,11 @@ const learningAnalyticsService = {
         incorrectAnswers: 0,
         accuracy: 0,
         totalTimeSpent: 0,
-        recentScores: []
+        recentScores: [],
+        countAbove80: 0,
+        countBelow50: 0,
+        bestScore: 0,
+        topicStats: { learned: 0, total: totalTopics }
       };
     }
     
@@ -74,6 +79,10 @@ const learningAnalyticsService = {
     let totalCorrect = 0;
     let totalIncorrect = 0;
     let totalTimeSpent = 0;
+    let bestScore = 0;
+    let countAbove80 = 0;
+    let countBelow50 = 0;
+    const topicSet = new Set();
     
     // Lấy 5 lần làm bài gần nhất
     const recentAttempts = [...completedAttempts]
@@ -93,6 +102,10 @@ const learningAnalyticsService = {
       totalCorrect += attempt.correctAnswers || 0;
       totalIncorrect += attempt.wrongAnswers || 0;
       totalTimeSpent += attempt.timeSpent || 0;
+      if (attempt.score >= 80) countAbove80++;
+      if (attempt.score < 50) countBelow50++;
+      if (attempt.score > bestScore) bestScore = attempt.score;
+      if (attempt.exam && attempt.exam.topic) topicSet.add(attempt.exam.topic.toString());
     });
     
     // Tính tổng số câu hỏi từ số câu đúng và sai
@@ -107,6 +120,8 @@ const learningAnalyticsService = {
       ? (totalCorrect / totalQuestions) * 100 
       : 0;
     
+    const totalTopics = await Topic.countDocuments();
+    
     return {
       totalAttempts: completedAttempts.length,
       averageScore,
@@ -115,7 +130,11 @@ const learningAnalyticsService = {
       incorrectAnswers: totalIncorrect,
       accuracy,
       totalTimeSpent,
-      recentScores
+      recentScores,
+      countAbove80,
+      countBelow50,
+      bestScore,
+      topicStats: { learned: topicSet.size, total: totalTopics }
     };
   },
 

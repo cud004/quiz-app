@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const ApiResponse = require('../utils/apiResponse');
 const ImageService = require('../services/user/imageService');
+const learningAnalyticsService = require('../services/learningAnalyticsService');
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -161,6 +162,17 @@ const getMe = async (req, res) => {
       };
     }
 
+    // Lấy thống kê học tập tổng quan
+    const overallStats = await learningAnalyticsService.getOverallStats(user._id);
+
+    // Chỉ lấy các trường cơ bản
+    const basicLearningStats = {
+      totalAttempts: overallStats.totalAttempts,
+      averageScore: Math.round(overallStats.averageScore * 10) / 10,
+      bestScore: overallStats.bestScore,
+      topicStats: overallStats.topicStats
+    };
+
     return ApiResponse.success(
       res,
       {
@@ -172,7 +184,8 @@ const getMe = async (req, res) => {
           role: user.role,
           preferences: user.preferences,
           profileImage,
-          subscription: subscriptionInfo
+          subscription: subscriptionInfo,
+          learningStats: basicLearningStats
         }
       },
       'User profile retrieved successfully'

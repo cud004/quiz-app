@@ -579,7 +579,11 @@ const quizAttemptService = {
     if (!quizAttempt) {
       throw new Error('Quiz attempt not found');
     }
-    if (quizAttempt.user.toString() !== userId.toString()) {
+    if (
+      quizAttempt.user.toString() !== userId.toString()
+    ) {
+      // Thêm log để debug nếu vẫn lỗi
+      console.log('Permission check failed:', quizAttempt.user.toString(), userId.toString());
       throw new Error('You do not have permission to access this result');
     }
 

@@ -329,7 +329,7 @@ const quizAttemptController = {
   getQuizSummary: async (req, res) => {
     try {
       const { id } = req.params;
-      const userId = req.user._id;
+      const userId = req.user._id ? req.user._id.toString() : req.user._id; // Ép về string
       const summary = await quizAttemptService.getQuizAttemptSummary(id, userId);
       return ApiResponse.success(res, summary, 'Quiz summary retrieved successfully');
     } catch (error) {

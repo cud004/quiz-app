@@ -265,6 +265,7 @@ const questionService = {
       total: questionsData.length,
       success: 0,
       failed: 0,
+      skipped: 0,
       errors: []
     };
     
@@ -277,7 +278,6 @@ const questionService = {
             throw new Error(`Topic with ID ${questionData.topic} not found`);
           }
         }
-        
         // Kiểm tra tags tồn tại
         if (questionData.tags && questionData.tags.length > 0) {
           for (const tagId of questionData.tags) {
@@ -287,39 +287,34 @@ const questionService = {
             }
           }
         }
-        
+        // Kiểm tra trùng lặp nội dung (content + topic)
+        const duplicate = await Question.findOne({
+          content: questionData.content,
+          topic: questionData.topic
+        });
+        if (duplicate) {
+          // Nếu trùng lặp thì bỏ qua, không tính là lỗi
+          results.skipped++;
+          continue;
+        }
         // Kiểm tra correctAnswer có trong options không
         const correctLabel = questionData.correctAnswer;
         const hasCorrectOption = questionData.options.some(option => option.label === correctLabel);
-        
         if (!hasCorrectOption) {
           throw new Error('Correct answer must match one of the option labels');
         }
-        
         // Tạo câu hỏi mới
         const question = new Question({
           ...questionData,
           createdBy
         });
-        
-        // Nếu chưa có giải thích, tự động sinh bằng Gemini
-        if (!question.explanation || question.explanation.trim() === '') {
-          question.explanation = await generateExplanation(
-            question.content,
-            question.options,
-            question.correctAnswer
-          );
-        }
-        
         await question.save();
-        
         // Tăng usageCount cho các tag
         if (question.tags && question.tags.length > 0) {
           for (const tagId of question.tags) {
             await Tag.findByIdAndUpdate(tagId, { $inc: { usageCount: 1 } });
           }
         }
-        
         results.success++;
       } catch (error) {
         results.failed++;
@@ -329,7 +324,6 @@ const questionService = {
         });
       }
     }
-    
     return results;
   },
 

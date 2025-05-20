@@ -4,10 +4,12 @@ const QuizAttempt = require('../../models/QuizAttempt');
 const Exam = require('../../models/Exam');
 const Question = require('../../models/Question');
 const examService = require('../exam/examService');
+const UserTagStats = require('../../models/UserTagStats');
 
 const quizAttemptService = {
   // Bắt đầu làm bài kiểm tra
   async startQuizAttempt(userId, examId) {
+    // console.log('[QuizAttemptService][startQuizAttempt] userId:', userId, 'examId:', examId);
     // Kiểm tra exam tồn tại
     const exam = await Exam.findById(examId);
     if (!exam) {
@@ -51,11 +53,13 @@ const quizAttemptService = {
     // Cập nhật số lượt làm bài cho exam
     await examService.incrementAttemptCount(examId);
     
+    // console.log('[QuizAttemptService][startQuizAttempt] created attempt:', quizAttempt?._id);
     return quizAttempt;
   },
   
   // Lấy thông tin phiên làm bài
   async getQuizAttempt(attemptId, userId) {
+    // console.log('[QuizAttemptService][getQuizAttempt] attemptId:', attemptId, 'userId:', userId);
     const quizAttempt = await QuizAttempt.findById(attemptId)
       .populate('exam', 'title description timeLimit questions')
       .populate({
@@ -96,6 +100,7 @@ const quizAttemptService = {
       }
     }
     
+    // console.log('[QuizAttemptService][getQuizAttempt] result:', quizAttempt?._id);
     return quizAttempt;
   },
   
@@ -139,6 +144,7 @@ const quizAttemptService = {
   
   // Gửi câu trả lời
   async submitAnswer(attemptId, userId, questionId, answer) {
+    // console.log('[QuizAttemptService][submitAnswer] attemptId:', attemptId, 'userId:', userId, 'questionId:', questionId, 'answer:', answer);
     const session = await mongoose.startSession();
     session.startTransaction();
     
@@ -216,6 +222,7 @@ const quizAttemptService = {
       session.endSession();
       
       // Không trả về thông tin isCorrect, chỉ xác nhận đã nhận được câu trả lời
+      // console.log('[QuizAttemptService][submitAnswer] result:', { questionId, answered: true });
       return {
         success: true,
         questionId: questionId,
@@ -303,21 +310,38 @@ const quizAttemptService = {
         questionPointsMap[q.question.toString()] = q.points;
       });
       
-      // Tính điểm đã đạt được và thống kê
+      // Map câu trả lời theo questionId
+      const answerMap = {};
       quizAttempt.answers.forEach(answer => {
-        const questionId = answer.question.toString();
-        const points = questionPointsMap[questionId] || 0;
-        
-        if (answer.isCorrect) {
-          earnedPoints += points;
-          correctCount++;
-        } else {
-          incorrectCount++;
+        if (answer.question) {
+          answerMap[answer.question.toString()] = answer;
         }
       });
-      
-      // Tính số câu bỏ qua
-      skippedCount = examQuestions.length - quizAttempt.answers.length;
+
+      // Xử lý từng câu hỏi trong đề thi
+      for (const examQ of examQuestions) {
+        const questionId = examQ.question.toString();
+        const answer = answerMap[questionId];
+        const points = questionPointsMap[questionId] || 0;
+
+        if (answer) {
+          if (answer.isCorrect) {
+            earnedPoints += points;
+            correctCount++;
+          } else {
+            incorrectCount++;
+          }
+        } else {
+          // Nếu không có câu trả lời, thêm vào answers array với isCorrect = false
+          quizAttempt.answers.push({
+            question: examQ.question,
+            selectedAnswer: null,
+            isCorrect: false,
+            timeSpent: 0
+          });
+          skippedCount++;
+        }
+      }
       
       // Cập nhật thông tin vào quizAttempt
       quizAttempt.score = totalPoints > 0 ? (earnedPoints / totalPoints) * 100 : 0;
@@ -334,6 +358,23 @@ const quizAttemptService = {
       };
       
       await quizAttempt.save({ session });
+      
+      // Populate lại quizAttempt với đầy đủ thông tin tags trước khi cập nhật thống kê tag
+      const populatedQuizAttempt = await QuizAttempt.findById(quizAttempt._id)
+        .populate({
+          path: 'exam',
+          select: 'questions',
+          populate: {
+            path: 'questions.question',
+            select: 'tags topic',
+            populate: { path: 'tags', select: 'name' }
+          }
+        })
+        .populate('answers.question', 'tags')
+        .lean();
+
+      // Cập nhật thống kê tag cho user
+      await this.updateUserTagStats(userId, populatedQuizAttempt);
       
       await session.commitTransaction();
       session.endSession();
@@ -558,21 +599,23 @@ const quizAttemptService = {
       .populate({
         path: 'exam',
         select: 'title description questions totalPoints timeLimit topic',
-        populate: {
-          path: 'questions.question',
-          select: 'tags content',
-          populate: [
-            { path: 'tags', select: 'name' }
-          ]
-        }
+        populate: [
+          {
+            path: 'questions.question',
+            select: 'tags content correctAnswer',
+            populate: [
+              { path: 'tags', select: 'name' }
+            ]
+          },
+          {
+            path: 'topic',
+            select: 'name'
+          }
+        ]
       })
       .populate({
         path: 'answers.question',
-        select: 'tags'
-      })
-      .populate({
-        path: 'exam.topic',
-        select: 'name'
+        select: 'tags correctAnswer'
       })
       .lean();
 
@@ -582,43 +625,65 @@ const quizAttemptService = {
     if (
       quizAttempt.user.toString() !== userId.toString()
     ) {
-      // Thêm log để debug nếu vẫn lỗi
-      console.log('Permission check failed:', quizAttempt.user.toString(), userId.toString());
       throw new Error('You do not have permission to access this result');
     }
 
-    // Tổng số câu, số câu đúng, sai
+    // Tổng số câu, số câu đúng, sai, bỏ qua
     const totalQuestions = quizAttempt.exam.questions.length;
     const correctAnswers = quizAttempt.correctAnswers || 0;
     const wrongAnswers = quizAttempt.wrongAnswers || 0;
+    const skippedQuestions = quizAttempt.skippedQuestions || (totalQuestions - (quizAttempt.answers ? quizAttempt.answers.length : 0));
     const timeSpent = quizAttempt.timeSpent || 0;
     const score = quizAttempt.score || 0;
 
     // Map câu trả lời theo questionId
     const answersMap = {};
     (quizAttempt.answers || []).forEach(ans => {
-      if (ans.question) answersMap[ans.question.toString()] = ans;
+      if (ans.question) {
+        const qId = ans.question._id ? ans.question._id.toString() : ans.question.toString();
+        answersMap[qId] = ans;
+      }
     });
 
-    // Phân tích theo tag
+    // Phân tích theo tag (chi tiết từng tag)
     const tagStats = {};
     for (const examQ of quizAttempt.exam.questions) {
-      const q = examQ.question;
-      const qId = q._id ? q._id.toString() : q.toString();
+      if (!examQ.question) continue;
+      const q = examQ.question && examQ.question.tags ? examQ.question : null;
+      const qId = examQ.question._id ? examQ.question._id.toString() : examQ.question.toString();
       const answer = answersMap[qId];
-      const isCorrect = answer ? answer.isCorrect : false;
-      // Tags
-      if (q.tags && Array.isArray(q.tags)) {
+
+      // Nếu đã populate question và có tags
+      if (q && Array.isArray(q.tags)) {
         for (const tag of q.tags) {
           const tagId = tag._id ? tag._id.toString() : tag.toString();
           const tagName = tag.name || tagId;
-          if (!tagStats[tagId]) tagStats[tagId] = { tagId, tagName, correct: 0, total: 0 };
+          
+          // Khởi tạo thống kê cho tag nếu chưa có
+          if (!tagStats[tagId]) {
+            tagStats[tagId] = { 
+              tagId, 
+              tagName, 
+              correct: 0, 
+              total: 0 
+            };
+          }
+
+          // Tăng tổng số câu hỏi đã gặp cho tag này
           tagStats[tagId].total++;
-          if (isCorrect) tagStats[tagId].correct++;
+
+          // Kiểm tra câu trả lời có đúng không
+          if (answer) {
+            // Nếu có câu trả lời, kiểm tra isCorrect
+            if (answer.isCorrect) {
+              tagStats[tagId].correct++;
+            }
+          }
         }
       }
     }
-    // Tính phần trăm
+
+    // Tính phần trăm cho từng tag
     const tagAnalysis = Object.values(tagStats).map(t => ({
       ...t,
       percent: t.total > 0 ? Math.round((t.correct / t.total) * 100) : 0
@@ -627,20 +692,29 @@ const quizAttemptService = {
     // Phân tích theo topic (chỉ 1 topic của exam)
     let topicAnalysis = [];
     if (quizAttempt.exam.topic) {
+      const topicObj = typeof quizAttempt.exam.topic === 'object' && quizAttempt.exam.topic !== null ? quizAttempt.exam.topic : null;
       topicAnalysis = [{
-        topicId: quizAttempt.exam.topic._id ? quizAttempt.exam.topic._id.toString() : quizAttempt.exam.topic.toString(),
-        topicName: quizAttempt.exam.topic.name || '',
+        topicId: topicObj && topicObj._id ? topicObj._id.toString() : quizAttempt.exam.topic.toString(),
+        topicName: topicObj && topicObj.name ? topicObj.name : '',
         correct: correctAnswers,
         total: totalQuestions,
         percent: totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0
       }];
     }
 
+    console.log('Debug tag stats:', {
+      totalQuestions,
+      correctAnswers,
+      tagStats,
+      answersMap
+    });
+
     return {
       score,
       totalQuestions,
       correctAnswers,
       wrongAnswers,
+      skippedQuestions,
       timeSpent,
       topicAnalysis,
       tagAnalysis
@@ -682,6 +756,116 @@ const quizAttemptService = {
       averageScore: e.totalAttempts > 0 ? Math.round(e.sumScore / e.totalAttempts) : 0
     }));
     return result;
+  },
+
+  // Cập nhật thống kê tag cho user khi hoàn thành quiz
+  async updateUserTagStats(userId, quizAttempt) {
+    try {
+      // Lấy tất cả câu trả lời đã trả lời
+      const answers = quizAttempt.answers || [];
+      if (!quizAttempt.exam || !quizAttempt.exam.questions) {
+        console.log('No exam or questions found in quizAttempt');
+        return;
+      }
+
+      // Map questionId -> answer
+      const answerMap = {};
+      answers.forEach(ans => {
+        if (ans.question) {
+          const qId = ans.question._id ? ans.question._id.toString() : ans.question.toString();
+          answerMap[qId] = ans;
+        }
+      });
+
+      console.log('=== DEBUG TAG STATS UPDATE ===');
+      console.log('User ID:', userId);
+      console.log('Quiz Attempt ID:', quizAttempt._id);
+      console.log('Total questions:', quizAttempt.exam.questions.length);
+      console.log('Total answers:', answers.length);
+      console.log('Answers map:', answerMap);
+
+      // Map để theo dõi số câu hỏi đã gặp cho mỗi tag trong lần làm bài này
+      const tagQuestionCount = {};
+      const tagCorrectCount = {};
+
+      // Duyệt qua từng câu hỏi trong đề thi
+      for (const examQ of quizAttempt.exam.questions) {
+        if (!examQ.question || !examQ.question.tags) {
+          console.log('Question or tags not found for question:', examQ.question?._id);
+          continue;
+        }
+
+        const q = examQ.question;
+        const qId = q._id ? q._id.toString() : q.toString();
+        const answer = answerMap[qId];
+
+        console.log('Processing question:', {
+          questionId: qId,
+          hasAnswer: !!answer,
+          isCorrect: answer?.isCorrect,
+          tags: q.tags
+        });
+
+        // Nếu có tags
+        if (Array.isArray(q.tags)) {
+          for (const tag of q.tags) {
+            const tagId = tag._id ? tag._id.toString() : tag.toString();
+            
+            // Khởi tạo counter nếu chưa có
+            if (!tagQuestionCount[tagId]) {
+              tagQuestionCount[tagId] = 0;
+              tagCorrectCount[tagId] = 0;
+            }
+
+            // Tăng số câu hỏi đã gặp cho tag này
+            tagQuestionCount[tagId]++;
+
+            // Nếu có câu trả lời và đúng, tăng số câu đúng
+            if (answer && answer.isCorrect) {
+              tagCorrectCount[tagId]++;
+            }
+          }
+        }
+      }
+
+      // Cập nhật thống kê cho từng tag
+      for (const tagId in tagQuestionCount) {
+        const topicId = quizAttempt.exam.topic;
+        
+        // Tìm hoặc tạo mới UserTagStats
+        let stat = await UserTagStats.findOne({ user: userId, tag: tagId });
+        
+        if (!stat) {
+          stat = new UserTagStats({
+            user: userId,
+            tag: tagId,
+            topic: topicId,
+            totalAnswered: 0,
+            correctAnswered: 0
+          });
+        }
+
+        // Cộng dồn thống kê mới vào thống kê cũ
+        stat.totalAnswered += tagQuestionCount[tagId];
+        stat.correctAnswered += tagCorrectCount[tagId];
+        stat.lastUpdated = new Date();
+
+        console.log('Updating tag stats:', {
+          tagId,
+          newQuestions: tagQuestionCount[tagId],
+          newCorrect: tagCorrectCount[tagId],
+          totalQuestions: stat.totalAnswered,
+          totalCorrect: stat.correctAnswered
+        });
+
+        await stat.save();
+      }
+
+      console.log('=== END TAG STATS UPDATE ===');
+    } catch (error) {
+      console.error('Error in updateUserTagStats:', error);
+      throw error;
+    }
   },
 
 };

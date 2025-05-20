@@ -18,6 +18,9 @@ const {
 // Tất cả route đều yêu cầu người dùng đăng nhập
 router.use(protect);
 
+router.get('/history', 
+  quizAttemptController.getUserQuizHistory);
+
 // Tổng quan lịch sử làm bài của user
 router.get('/summary', quizAttemptController.getUserQuizSummary);
 // Bắt đầu làm bài kiểm tra
@@ -67,7 +70,6 @@ router.get('/:id/summary',
   validateRequest(getQuizResultValidation),
   quizAttemptController.getQuizSummary
 );
-
 
 
 module.exports = router; 

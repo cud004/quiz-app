@@ -9,10 +9,14 @@ const momoService = require('./momoService');
 const crypto = require('crypto');
 const AuthService = require('../services/auth/authService');
 const { calculateGatewayAmount, formatCurrency } = require('../utils/paymentUtils');
+const axios = require('axios');
+const { vnpayResponseSchema, momoResponseSchema } = require('../validations/paymentValidation');
+const ApiResponse = require('../utils/apiResponse');
+const paymentUtils = require('../utils/paymentUtils');
 
 /**
  * Service xử lý thanh toán
- */
+ */ 
 const paymentService = {
   /**
    * Tạo phiên thanh toán mới cho gói subscription
@@ -23,6 +27,7 @@ const paymentService = {
    * @returns {object} URL thanh toán và thông tin phiên
    */
   async createPaymentSession(userId, packageId, paymentMethod, options = {}) {
+    console.log('[PaymentService] createPaymentSession', { userId, packageId, paymentMethod, options });
     // Kiểm tra ID người dùng hợp lệ
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       throw new Error('ID người dùng không hợp lệ');
@@ -59,9 +64,14 @@ const paymentService = {
       const result = await subscriptionService.subscribePackage(userId, packageId);
       return {
         success: true,
-        message: 'Đăng ký gói miễn phí thành công',
-        requiresPayment: false,
-        subscription: result
+        data: {
+          paymentId: null,
+          paymentUrl: null,
+          transactionId: null,
+          requiresPayment: false,
+          subscription: result
+        },
+        message: 'Đăng ký gói miễn phí thành công'
       };
     }
     
@@ -79,53 +89,67 @@ const paymentService = {
       totalAmount: packageInfo.price,
       paymentMethod: paymentMethod,
       transactionId: transactionId,
-      status: 'pending',
+      status: 'PENDING',
       paymentDetails: {
         description: `Thanh toán gói ${packageInfo.name} - ${packageInfo.duration} tháng`,
-        returnUrl: options.returnUrl || paymentConfig.defaultReturnUrl,
+        returnUrl: options.returnUrl || paymentConfig.vnpay.returnUrl,
         ipAddress: options.ipAddress || '127.0.0.1',
-        bankCode: options.bankCode || '',
-        ...options
-      }
+        bankCode: options.bankCode,
+        orderInfo: `Thanh toán gói ${packageInfo.name}`
+      },
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000)
     };
     
     // Lưu thông tin phiên thanh toán
     const payment = await Payment.create(paymentInfo);
     
-    // Tạo URL thanh toán dựa trên phương thức
     let paymentUrl;
-    
-    if (paymentMethod === 'vnpay') {
-      // Sử dụng VNPayService để tạo URL thanh toán
-      const vnpayResult = await vnpayService.createPayment(
-        userId, 
-        packageId,
-        {
-          ...options,
-          returnUrl: options.returnUrl || paymentConfig.vnpay.returnUrl || payment.paymentDetails.returnUrl,
-          ipAddress: options.ipAddress || payment.paymentDetails.ipAddress,
-          bankCode: options.bankCode || payment.paymentDetails.bankCode
-        }
-      );
-      
-      paymentUrl = vnpayResult.paymentUrl;
-      
-      // Cập nhật thông tin giao dịch nếu cần
-      if (vnpayResult.transactionId && vnpayResult.transactionId !== payment.transactionId) {
-        payment.transactionId = vnpayResult.transactionId;
+    let gatewayResponse;
+
+    try {
+      if (paymentMethod === 'vnpay') {
+        const vnpayResult = await vnpayService.createPayment(userId, packageId, options);
+        paymentUrl = vnpayResult.paymentUrl;
+        gatewayResponse = vnpayResult.gatewayResponse;
+      } else if (paymentMethod === 'momo') {
+        const momoResult = await momoService.createPayment(userId, packageId, options);
+        paymentUrl = momoResult.paymentUrl;
+        gatewayResponse = momoResult.gatewayResponse;
+      }
+
+      // Cập nhật thông tin gateway response
+      if (gatewayResponse) {
+        payment.paymentDetails.gatewayResponse = gatewayResponse;
         await payment.save();
       }
-    } else if (paymentMethod === 'momo') {
-      paymentUrl = await momoService._createMomoPaymentUrl(payment, packageInfo, user);
+      
+      return {
+        success: true,
+        data: {
+          paymentId: payment._id,
+          paymentUrl: paymentUrl,
+          transactionId: payment.transactionId,
+          requiresPayment: true,
+          amount: payment.totalAmount,
+          currency: 'VND',
+          paymentMethod: paymentMethod,
+          packageInfo: {
+            name: packageInfo.name,
+            duration: packageInfo.duration,
+            price: packageInfo.price
+          },
+          status: payment.status,
+          createdAt: payment.createdAt
+        },
+        message: 'Tạo phiên thanh toán thành công'
+      };
+    } catch (error) {
+      // Cập nhật trạng thái lỗi
+      payment.status = 'FAILED';
+      payment.paymentDetails.error = error.message;
+      await payment.save();
+      throw new Error(`Lỗi tạo phiên thanh toán: ${error.message}`);
     }
-    
-    return {
-      success: true,
-      paymentId: payment._id,
-      paymentUrl: paymentUrl,
-      transactionId: payment.transactionId,
-      requiresPayment: true
-    };
   },
 
   /**
@@ -160,7 +184,7 @@ const paymentService = {
       });
 
       // Nếu thanh toán thành công và chưa được xử lý
-      if (result.success && payment.status === 'completed' && !payment.completedAt) {
+      if (result.success && payment.status === 'SUCCESS' && !payment.completedAt) {
         try {
           // Kích hoạt gói đăng ký
           console.log('Activating subscription:', {
@@ -204,7 +228,7 @@ const paymentService = {
           await session.abortTransaction();
           throw error;
         }
-      } else if (payment.status === 'failed') {
+      } else if (payment.status === 'FAILED') {
         try {
           // Gửi email thông báo thất bại
           await AuthService.sendEmail({
@@ -252,7 +276,7 @@ const paymentService = {
       if (result.success && result.payment) {
         const payment = result.payment;
         
-        if (payment.status === 'completed' && payment.user && payment.subscription.package) {
+        if (payment.status === 'SUCCESS' && payment.user && payment.subscription.package) {
           try {
             const user = await User.findById(payment.user._id);
             if (!user) throw new Error('Không tìm thấy người dùng');
@@ -438,6 +462,44 @@ const paymentService = {
       .populate('subscription.package');
     
     return payment;
+  },
+
+  // Hàm tổng quát lấy danh sách ngân hàng theo gateway
+  async getBanks(method) {
+    switch (method) {
+      case 'vnpay':
+        return await vnpayService.getBanks();
+      case 'momo':
+        return []; // MoMo không có danh sách bank, trả về mảng rỗng
+      default:
+        throw new Error('Phương thức thanh toán không hợp lệ');
+    }
+  },
+
+  // Hàm tổng quát xử lý IPN từ gateway
+  async handleIPN(method, data) {
+    console.log('[PaymentService] handleIPN', { method, data });
+    switch (method) {
+      case 'vnpay':
+        return await vnpayService.handleIPN(data);
+      case 'momo':
+        return await momoService.handleIPN(data);
+      default:
+        throw new Error('Phương thức thanh toán không hợp lệ');
+    }
+  },
+
+  // Hàm tổng quát lấy trạng thái thanh toán
+  async getPaymentStatus(method, data) {
+    console.log('[PaymentService] getPaymentStatus', { method, data });
+    switch (method) {
+      case 'vnpay':
+        return await vnpayService.getPaymentStatus(data);
+      case 'momo':
+        return await momoService.getPaymentStatus(data);
+      default:
+        throw new Error('Phương thức thanh toán không hợp lệ');
+    }
   }
 };
 

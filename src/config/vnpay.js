@@ -3,8 +3,8 @@
  */
 module.exports = {
   // Thông tin merchant
-  tmnCode: process.env.VNPAY_TMN_CODE || '6TLZKQ6E', // Mã TMN Code, thay thế bằng mã thật khi triển khai
-  hashSecret: process.env.VNPAY_HASH_SECRET || 'TB0Q8XFA7J38PHMMO8HOT38K3L9QK6NM', // Khóa bí mật, thay thế bằng khóa thật khi triển khai
+  tmnCode: process.env.VNPAY_TMN_CODE,
+  hashSecret: process.env.VNPAY_HASH_SECRET,
   
   // Môi trường
   vnpayHost: process.env.NODE_ENV === 'production' 
@@ -18,12 +18,22 @@ module.exports = {
   locale: 'vn',
   currencyCode: 'VND',
   
-  // URL callback
-  returnUrl: process.env.VNPAY_RETURN_URL || 'http://localhost:5000/api/payments/result',
-  ipnUrl: process.env.VNPAY_IPN_URL || 'http://localhost:5000/api/payments/vnpay/ipn',
+  // URL callback - Sử dụng domain thật trong production
+  returnUrl: process.env.NODE_ENV === 'production'
+    ? `${process.env.API_DOMAIN}/api/payments/vnpay/callback`
+    : 'http://localhost:5000/api/payments/vnpay/callback',
+  ipnUrl: process.env.NODE_ENV === 'production'
+    ? `${process.env.API_DOMAIN}/api/payments/vnpay/ipn`
+    : 'http://localhost:5000/api/payments/vnpay/ipn',
+  
+  // Cấu hình bảo mật
+  timeout: 15000, // 15 giây
+  maxRetries: 3,
+  retryDelay: 1000, // 1 giây
   
   // Logging
-  enableLog: process.env.NODE_ENV !== 'production',
+  enableLog: true,
+  logLevel: process.env.NODE_ENV === 'production' ? 'error' : 'debug',
   
   // Endpoints
   endpoints: {

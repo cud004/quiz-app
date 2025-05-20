@@ -74,13 +74,14 @@ const momoService = {
       totalAmount: packageInfo.price,
       paymentMethod: 'momo',
       transactionId: transactionId,
-      status: 'pending',
+      status: 'PENDING',
       paymentDetails: {
         description: `Thanh toán gói ${packageInfo.name} - ${packageInfo.duration} tháng`,
         returnUrl: options.returnUrl || paymentConfig.defaultReturnUrl,
         ipAddress: options.ipAddress || '127.0.0.1',
         ...options
-      }
+      },
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000)
     };
     
     // Lưu thông tin phiên thanh toán
@@ -119,7 +120,7 @@ const momoService = {
       }
 
       // Kiểm tra nếu giao dịch đã được xử lý
-      if (payment.status === 'completed') {
+      if (payment.status === 'SUCCESS') {
         return {
           success: true,
           message: 'Giao dịch đã được xử lý trước đó',
@@ -137,7 +138,7 @@ const momoService = {
       // Kiểm tra mã phản hồi
       if (resultCode === 0 || resultCode === '0') {
         // Cập nhật trạng thái thanh toán thành công
-        payment.status = 'completed';
+        payment.status = 'SUCCESS';
         payment.paymentDetails = {
           ...payment.paymentDetails,
           momoTransId: transId,
@@ -199,7 +200,7 @@ const momoService = {
         };
       } else {
         // Cập nhật trạng thái thanh toán thất bại
-        payment.status = 'failed';
+        payment.status = 'FAILED';
         payment.paymentDetails = {
           ...payment.paymentDetails,
           errorCode: resultCode,
@@ -329,7 +330,7 @@ const momoService = {
       }
 
       // Kiểm tra nếu giao dịch đã được xử lý
-      if (payment.status === 'completed') {
+      if (payment.status === 'SUCCESS') {
         return {
           success: true,
           message: 'Giao dịch đã được xử lý trước đó',
@@ -347,7 +348,7 @@ const momoService = {
       // Kiểm tra mã phản hồi
       if (resultCode === 0 || resultCode === '0') {
         // Cập nhật trạng thái thanh toán thành công
-        payment.status = 'completed';
+        payment.status = 'SUCCESS';
         payment.paymentDetails = {
           ...payment.paymentDetails,
           momoTransId: transId,
@@ -395,7 +396,7 @@ const momoService = {
         };
       } else {
         // Cập nhật trạng thái thanh toán thất bại
-        payment.status = 'failed';
+        payment.status = 'FAILED';
         payment.paymentDetails = {
           ...payment.paymentDetails,
           errorCode: resultCode,
@@ -437,52 +438,51 @@ const momoService = {
       const secretKey = paymentConfig.momo.secretKey;
       const requestId = payment.transactionId;
       const orderId = payment.transactionId;
-      // Sử dụng helper function để tính toán số tiền cho MoMo
-      const amount = calculateGatewayAmount(payment.totalAmount, 'momo').toString();
+      const amount = payment.totalAmount.toString();
       const orderInfo = `Thanh toan goi ${packageInfo.name}`;
       const redirectUrl = payment.paymentDetails.returnUrl || paymentConfig.defaultReturnUrl;
-      const ipnUrl = paymentConfig.momo.notifyUrl || 'http://localhost:5000/api/payments/momo/notify';
+      const ipnUrl = paymentConfig.momo.notifyUrl;
       const extraData = Buffer.from(JSON.stringify({
         userId: user._id.toString(),
         packageId: packageInfo._id.toString()
       })).toString('base64');
-      const requestType = "captureWallet";
+      const requestType = paymentConfig.momo.requestType;
+      const orderType = paymentConfig.momo.orderType;
+      const lang = paymentConfig.momo.lang;
       
-      // Tạo đối tượng tham số yêu cầu
-      const requestParams = {
-        accessKey,
-        amount,
-        extraData,
-        ipnUrl,
-        orderId,
-        orderInfo,
-        partnerCode,
-        redirectUrl,
-        requestId,
-        requestType
-      };
-      
-      // Sắp xếp tham số và tạo chuỗi chữ ký
-      const sortedParams = {};
-      Object.keys(requestParams).sort().forEach(key => {
-        sortedParams[key] = requestParams[key];
-      });
-      
-      // Tạo chuỗi raw signature theo đúng định dạng MoMo yêu cầu
-      const rawSignature = Object.keys(sortedParams)
-        .map(key => `${key}=${sortedParams[key]}`)
-        .join('&');
+      // Tạo raw signature đúng thứ tự theo tài liệu MoMo
+      const rawSignature =
+        `accessKey=${accessKey}` +
+        `&amount=${amount}` +
+        `&extraData=${extraData}` +
+        `&ipnUrl=${ipnUrl}` +
+        `&orderId=${orderId}` +
+        `&orderInfo=${orderInfo}` +
+        `&partnerCode=${partnerCode}` +
+        `&redirectUrl=${redirectUrl}` +
+        `&requestId=${requestId}` +
+        `&requestType=${requestType}`;
       
       // Tạo chữ ký
       const signature = crypto.createHmac('sha256', secretKey)
         .update(rawSignature)
         .digest('hex');
       
-      // Chuẩn bị dữ liệu gửi tới MoMo
+      // Chuẩn bị dữ liệu gửi tới MoMo (vẫn gửi orderType, lang nếu muốn)
       const requestBody = {
-        ...requestParams,
-        signature,
-        lang: 'vi'
+        partnerCode,
+        accessKey,
+        requestId,
+        amount,
+        orderId,
+        orderInfo,
+        redirectUrl,
+        ipnUrl,
+        extraData,
+        requestType,
+        orderType,
+        lang,
+        signature
       };
       
       console.log('MoMo Request Body:', JSON.stringify(requestBody, null, 2));

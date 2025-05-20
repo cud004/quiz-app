@@ -9,11 +9,12 @@ const quizAttemptController = {
     try {
       const { examId } = req.body;
       const userId = req.user._id;
-      
+      // console.log('[QuizAttempt][startQuiz] userId:', userId, 'examId:', examId, 'body:', req.body);
       const quizAttempt = await quizAttemptService.startQuizAttempt(userId, examId);
       
       // Lấy thông tin chi tiết để client có đầy đủ dữ liệu
       const detailedAttempt = await quizAttemptService.getQuizAttempt(quizAttempt._id, userId);
+      // console.log('[QuizAttempt][startQuiz] result:', detailedAttempt?._id);
       
       return ApiResponse.success(
         res,
@@ -39,7 +40,7 @@ const quizAttemptController = {
     try {
       const { id } = req.params;
       const userId = req.user._id;
-      
+      console.log('[QuizAttempt][getQuizAttempt] userId:', userId, 'attemptId:', id, 'query:', req.query);
       const quizAttempt = await quizAttemptService.getQuizAttempt(id, userId);
 
       // Biến đổi dữ liệu để dễ sử dụng phía client
@@ -134,6 +135,7 @@ const quizAttemptController = {
         };
       }
       
+      console.log('[QuizAttempt][getQuizAttempt] result:', quizAttempt?._id);
       return ApiResponse.success(
         res,
         responseData,
@@ -156,8 +158,9 @@ const quizAttemptController = {
   getUserQuizAttempts: async (req, res) => {
     try {
       const userId = req.user._id;
-      
+      console.log('[QuizAttempt][getUserQuizAttempts] userId:', userId, 'query:', req.query);
       const result = await quizAttemptService.getUserQuizAttempts(userId, req.query);
+      console.log('[QuizAttempt][getUserQuizAttempts] result:', result?.quizAttempts?.length);
       
       return ApiResponse.paginated(
         res,
@@ -176,7 +179,7 @@ const quizAttemptController = {
       const { id } = req.params;
       const { questionId, answer } = req.body;
       const userId = req.user._id;
-      
+      console.log('[QuizAttempt][submitAnswer] userId:', userId, 'attemptId:', id, 'questionId:', questionId, 'answer:', answer);
       const result = await quizAttemptService.submitAnswer(id, userId, questionId, answer);
       
       // Bổ sung thông tin về câu hỏi kế tiếp để client có thể chuyển sang câu hỏi tiếp theo
@@ -202,6 +205,7 @@ const quizAttemptController = {
         console.log('Không thể lấy thông tin câu hỏi kế tiếp:', err.message);
       }
       
+      console.log('[QuizAttempt][submitAnswer] result:', result);
       return ApiResponse.success(
         res,
         result,
@@ -229,8 +233,9 @@ const quizAttemptController = {
     try {
       const { id } = req.params;
       const userId = req.user._id;
-      
+      console.log('[QuizAttempt][completeQuiz] userId:', userId, 'attemptId:', id);
       const result = await quizAttemptService.completeQuizAttempt(id, userId);
+      console.log('[QuizAttempt][completeQuiz] result:', result);
       
       // Kiểm tra xem người dùng có nộp bài sớm không
       let message = 'Quiz completed successfully';
@@ -388,6 +393,41 @@ const quizAttemptController = {
           topicStats: { learned: topicCount, total: totalTopics }
         }
       });
+    } catch (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  },
+  // API: Lấy danh sách lịch sử làm bài của người dùng (dạng đơn giản)
+  getUserQuizHistory: async (req, res) => {
+    try {
+      const userId = req.user._id;
+      const QuizAttempt = require("../models/QuizAttempt");
+      const Exam = require("../models/Exam");
+      const Topic = require("../models/Topic");
+
+      // Lấy tất cả các lần làm bài đã hoàn thành
+      const attempts = await QuizAttempt.find({ user: userId, status: "completed" })
+        .populate({
+          path: "exam",
+          select: "title name topic questions",
+          populate: { path: "topic", select: "name" }
+        })
+        .sort({ endTime: -1 });
+
+      // Map dữ liệu về đúng định dạng yêu cầu
+      const history = attempts.map((a, idx) => ({
+        id: a._id,
+        quizId: a.exam ? a.exam._id : null,
+        quizName: a.exam ? (a.exam.name || a.exam.title || "") : "",
+        correctAnswers: a.correctAnswers || 0,
+        totalQuestions: a.exam && a.exam.questions ? a.exam.questions.length : 0,
+        score: a.score,
+        timeTaken: a.timeSpent || 0,
+        dateTime: a.endTime,
+        topic: a.exam && a.exam.topic && a.exam.topic.name ? a.exam.topic.name : "",
+      }));
+
+      return res.json({ success: true, history });
     } catch (error) {
       return res.status(500).json({ success: false, message: error.message });
     }

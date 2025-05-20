@@ -1,29 +1,31 @@
 const express = require('express');
 const router = express.Router();
 const paymentController = require('../controllers/paymentController');
-const momoController = require('../controllers/momoController');
 const { protect, admin } = require('../middleware/auth');
 
-// Routes công khai - Callbacks từ cổng thanh toán
-// Đây là endpoint xử lý callback từ VNPay sau khi thanh toán
-router.get('/result', paymentController.handlePaymentResult);
-// Thêm route để xử lý khi có lỗi định dạng POST 
-router.post('/result', paymentController.handlePaymentResult);
-
-// Routes cho người dùng đã đăng nhập
-// Tạo phiên thanh toán mới (chung, sẽ điều hướng đến gateway tương ứng)
-router.post('/create', protect, paymentController.createPaymentSession);
-
-// Lấy danh sách phương thức thanh toán
+// Public routes cho FE
 router.get('/methods', paymentController.getPaymentMethods);
+router.get('/banks/:method', paymentController.getBanks); // FE lấy danh sách bank theo gateway
+router.get('/result', paymentController.handlePaymentResult);
 
-// Lấy lịch sử thanh toán
-router.get('/history', protect, paymentController.getPaymentHistory);
+// General payment routes
+router.get('/callback/:method', paymentController.handleCallback);
+router.post('/ipn/:method', paymentController.handleIPN);
+router.get('/status/:method', paymentController.getPaymentStatus);
 
-// Truy vấn thông tin giao dịch
-router.get('/query/:transactionId', protect, paymentController.queryTransaction);
+// VNPay specific routes (for gateway only)
+router.get('/vnpay/callback', paymentController.handleVnpayCallback);
+router.post('/vnpay/ipn', paymentController.handleVnpayIPN);
 
-// Lấy thông tin giao dịch theo ID
-router.get('/:paymentId', protect, paymentController.getPaymentById);
+// MoMo specific routes (for gateway only)
+router.get('/momo/callback', paymentController.handleMomoCallback);
+router.post('/momo/ipn', paymentController.handleMomoIPN);
+
+// Protected routes
+router.use(protect);
+router.post('/create', paymentController.createPaymentSession);
+router.get('/history', paymentController.getPaymentHistory);
+router.get('/:paymentId', paymentController.getPaymentById);
+router.get('/query/:transactionId', paymentController.getPaymentByTransactionId);
 
 module.exports = router; 

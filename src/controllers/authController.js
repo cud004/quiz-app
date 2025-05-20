@@ -185,7 +185,9 @@ const getMe = async (req, res) => {
           preferences: user.preferences,
           profileImage,
           subscription: subscriptionInfo,
-          learningStats: basicLearningStats
+          learningStats: basicLearningStats,
+          lastLogin: user.lastLogin,
+          createdAt: user.createdAt
         }
       },
       'User profile retrieved successfully'

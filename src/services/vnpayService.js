@@ -11,15 +11,33 @@ const qs = require('qs');
 const axios = require('axios');
 const AuthService = require('./auth/authService');
 
-// Khởi tạo VNPay instance
+// Khởi tạo VNPay instance với cấu hình
 const vnpayInstance = new VNPay({
   tmnCode: vnpayConfig.tmnCode,
   secureSecret: vnpayConfig.hashSecret,
   vnpayHost: vnpayConfig.vnpayHost,
   testMode: vnpayConfig.testMode,
   hashAlgorithm: vnpayConfig.hashAlgorithm,
-  enableLog: vnpayConfig.enableLog
+  enableLog: vnpayConfig.enableLog,
+  logLevel: vnpayConfig.logLevel
 });
+
+// Hàm retry với delay
+const retryWithDelay = async (fn, maxRetries = vnpayConfig.maxRetries, delay = vnpayConfig.retryDelay) => {
+  let lastError;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      console.error(`Retry attempt ${i + 1} failed:`, error);
+      if (i < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError;
+};
 
 /**
  * Service xử lý thanh toán qua VNPay
@@ -31,94 +49,100 @@ const vnpayService = {
    * @returns {string} Chữ ký
    */
   createSignature(params) {
-    // Sắp xếp tham số theo alphabet và loại bỏ các tham số rỗng
-    const sortedParams = {};
-    Object.keys(params)
-      .filter(key => params[key] !== '' && params[key] !== undefined && params[key] !== null)
-      .sort()
-      .forEach(key => {
-        sortedParams[key] = params[key].toString();
-      });
+    try {
+      // Sắp xếp tham số theo alphabet và loại bỏ các tham số rỗng
+      const sortedParams = {};
+      Object.keys(params)
+        .filter(key => params[key] !== '' && params[key] !== undefined && params[key] !== null)
+        .sort()
+        .forEach(key => {
+          sortedParams[key] = params[key].toString();
+        });
 
-    // Tạo chuỗi ký
-    const signData = qs.stringify(sortedParams, { encode: false });
-    
-    // Tạo chữ ký với SHA512
-    const hmac = crypto.createHmac('sha512', vnpayConfig.hashSecret);
-    return hmac.update(Buffer.from(signData, 'utf-8')).digest('hex');
+      // Tạo chuỗi ký
+      const signData = qs.stringify(sortedParams, { encode: false });
+      
+      // Tạo chữ ký với SHA512
+      const hmac = crypto.createHmac('sha512', vnpayConfig.hashSecret);
+      return hmac.update(Buffer.from(signData, 'utf-8')).digest('hex');
+    } catch (error) {
+      console.error('Error creating VNPay signature:', error);
+      throw new Error('Lỗi tạo chữ ký VNPay');
+    }
   },
 
   /**
    * Xác thực chữ ký từ VNPay
-   * @param {Object} params - Tham số từ VNPay
+   * @param {Object} params - Tham số cần xác thực
    * @returns {boolean} Kết quả xác thực
    */
   verifySignature(params) {
-    const receivedHash = params.vnp_SecureHash;
-    const secureHashType = params.vnp_SecureHashType;
+    try {
+      // Clone params để không làm thay đổi object gốc
+      const paramsCopy = { ...params };
+      const vnp_SecureHash = paramsCopy.vnp_SecureHash;
+      delete paramsCopy.vnp_SecureHash;
+      delete paramsCopy.vnp_SecureHashType; // Loại bỏ luôn nếu có
 
-    // Xóa các trường không cần thiết cho việc tạo chữ ký
-    const verifyParams = { ...params };
-    delete verifyParams.vnp_SecureHash;
-    delete verifyParams.vnp_SecureHashType;
-
-    // Tạo chữ ký mới và so sánh
-    const calculatedHash = this.createSignature(verifyParams);
-    return calculatedHash === receivedHash;
+      // Sắp xếp tham số theo alphabet và loại bỏ các tham số rỗng
+      const sortedParams = {};
+      Object.keys(paramsCopy)
+        .filter(key => paramsCopy[key] !== '' && paramsCopy[key] !== undefined && paramsCopy[key] !== null)
+        .sort()
+        .forEach(key => {
+          sortedParams[key] = paramsCopy[key].toString();
+        });
+      const signData = require('qs').stringify(sortedParams, { encode: false });
+      const hashSecret = require('../config/vnpay').hashSecret;
+      const hmac = require('crypto').createHmac('sha512', hashSecret);
+      const calculatedSignature = hmac.update(Buffer.from(signData, 'utf-8')).digest('hex');
+      // Log chi tiết để debug
+      console.log('--- VNPay Signature Debug ---');
+      console.log('Params for signature:', sortedParams);
+      console.log('SignData:', signData);
+      console.log('HashSecret:', hashSecret);
+      console.log('Calculated signature:', calculatedSignature);
+      console.log('VNPay signature:', vnp_SecureHash);
+      console.log('-----------------------------');
+      return calculatedSignature === vnp_SecureHash;
+    } catch (error) {
+      console.error('Error verifying VNPay signature:', error);
+      return false;
+    }
   },
 
   /**
-   * Tạo phiên thanh toán mới cho VNPay
+   * Tạo thanh toán mới
    * @param {string} userId - ID người dùng
-   * @param {string} packageId - ID gói subscription
-   * @param {object} options - Các tùy chọn bổ sung
-   * @returns {object} URL thanh toán và thông tin phiên
+   * @param {string} packageId - ID gói đăng ký
+   * @param {Object} options - Tùy chọn thanh toán
+   * @returns {Promise<Object>} Kết quả tạo thanh toán
    */
   async createPayment(userId, packageId, options = {}) {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
       // Validate input
-      if (!mongoose.Types.ObjectId.isValid(userId)) {
-        throw new Error('ID người dùng không hợp lệ');
-      }
-      if (!mongoose.Types.ObjectId.isValid(packageId)) {
-        throw new Error('ID gói đăng ký không hợp lệ');
+      if (!userId || !packageId) {
+        throw new Error('Thiếu thông tin người dùng hoặc gói đăng ký');
       }
 
-      // Lấy thông tin người dùng và gói
-      const [user, packageInfo] = await Promise.all([
-        User.findById(userId),
-        SubscriptionPackage.findById(packageId)
-      ]);
-
-      if (!user) throw new Error('Không tìm thấy người dùng');
-      if (!packageInfo) throw new Error('Không tìm thấy gói đăng ký');
-      if (!packageInfo.isActive) throw new Error('Gói đăng ký hiện không khả dụng');
-
-      // Xử lý gói miễn phí
-      if (packageInfo.price === 0) {
-        const result = await subscriptionService.subscribePackage(userId, packageId);
-        return {
-          success: true,
-          message: 'Đăng ký gói miễn phí thành công',
-          requiresPayment: false,
-          subscription: result
-        };
+      // Lấy thông tin gói
+      const packageInfo = await SubscriptionPackage.findById(packageId);
+      if (!packageInfo) {
+        throw new Error('Không tìm thấy gói đăng ký');
       }
 
-      // Tạo mã giao dịch
-      const transactionId = `QUIZ_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-
-      // Đảm bảo returnUrl luôn là URL tuyệt đối
-      let returnUrl = options.returnUrl || vnpayConfig.returnUrl;
-      // Kiểm tra xem returnUrl có phải là URL tuyệt đối không
-      if (!returnUrl.startsWith('http://') && !returnUrl.startsWith('https://')) {
-        // Nếu là đường dẫn tương đối, thêm domain
-        returnUrl = `http://localhost:5000${returnUrl.startsWith('/') ? '' : '/'}${returnUrl}`;
-      }
-      console.log('Return URL đầy đủ:', returnUrl);
+      // Tạo transaction ID
+      const transactionId = crypto.randomBytes(16).toString('hex');
+      
+      // Tạo return URL
+      const returnUrl = options.returnUrl || vnpayConfig.returnUrl;
+      console.log('Return URL:', returnUrl);
 
       // Tạo payment record
-      const payment = await Payment.create({
+      const payment = await Payment.create([{
         user: userId,
         subscription: {
           package: packageId,
@@ -128,7 +152,7 @@ const vnpayService = {
         totalAmount: packageInfo.price,
         paymentMethod: 'vnpay',
         transactionId: transactionId,
-        status: 'pending',
+        status: 'PENDING',
         paymentDetails: {
           description: `Thanh toán gói ${packageInfo.name} - ${packageInfo.duration} tháng`,
           returnUrl: returnUrl,
@@ -136,92 +160,68 @@ const vnpayService = {
           bankCode: options.bankCode || '',
           orderInfo: `Thanh toan goi ${packageInfo.name}`,
           requestId: crypto.randomBytes(16).toString('hex')
-        }
-      });
+        },
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000)
+      }], { session });
 
       // Sử dụng thư viện vnpay để tạo URL thanh toán
       try {
-        // Sử dụng helper function để tính toán số tiền cho VNPay
-        const vnpAmount = calculateGatewayAmount(payment.totalAmount, 'vnpay');
+        const vnpAmount = calculateGatewayAmount(payment[0].totalAmount, 'vnpay');
+        const now = new Date();
+        const vnpCreateDate = dateFormat(now, 'yyyyMMddHHmmss');
+        const vnpExpireDate = dateFormat(new Date(now.getTime() + 15 * 60 * 1000), 'yyyyMMddHHmmss');
+        // Đảm bảo luôn có orderInfo
+        const orderInfo = payment[0].paymentDetails.orderInfo || `Thanh toán gói ${packageInfo.name}`;
+        // Đảm bảo IP là IPv4
+        let ipAddr = payment[0].paymentDetails.ipAddress;
+        if (!ipAddr || ipAddr === '::1' || ipAddr === '::ffff:127.0.0.1') ipAddr = '127.0.0.1';
+
+        const paymentUrl = await retryWithDelay(async () => {
+          return await vnpayInstance.buildPaymentUrl({
+            vnp_Amount: vnpAmount,
+            vnp_IpAddr: ipAddr,
+            vnp_TxnRef: payment[0].transactionId,
+            vnp_OrderInfo: orderInfo,
+            vnp_ReturnUrl: payment[0].paymentDetails.returnUrl,
+            vnp_BankCode: payment[0].paymentDetails.bankCode || undefined,
+            vnp_ExpireDate: vnpExpireDate,
+            vnp_CreateDate: vnpCreateDate,
+            vnp_OrderType: 'billpayment' // Sử dụng loại hợp lệ
+          });
+        });
+
+        await session.commitTransaction();
         
-        const paymentUrl = await vnpayInstance.buildPaymentUrl({
-          vnp_Amount: vnpAmount,
-          vnp_IpAddr: payment.paymentDetails.ipAddress,
-          vnp_TxnRef: payment.transactionId,
-          vnp_OrderInfo: payment.paymentDetails.orderInfo,
-          vnp_ReturnUrl: payment.paymentDetails.returnUrl, // Đã đảm bảo là URL tuyệt đối
-          vnp_BankCode: payment.paymentDetails.bankCode || undefined,
-          vnp_ExpireDate: dateFormat(new Date(Date.now() + 15 * 60 * 1000), 'yyyyMMddHHmmss')
-        });
-
-        console.log('Đã tạo payment URL:', {
-          transactionId: payment.transactionId,
-          returnUrl: payment.paymentDetails.returnUrl,
-          paymentUrl: paymentUrl
-        });
-
         return {
           success: true,
-          paymentId: payment._id,
+          paymentId: payment[0]._id,
           paymentUrl: paymentUrl,
           transactionId: transactionId,
           requiresPayment: true
         };
       } catch (error) {
-        console.error('Lỗi khi tạo URL thanh toán qua thư viện VNPAY:', error);
-        // Nếu thư viện vnpay gặp lỗi, sử dụng cách thủ công
-        const vnpAmount = calculateGatewayAmount(payment.totalAmount, 'vnpay');
-        const vnpParams = {
-          vnp_Version: vnpayConfig.apiVersion,
-          vnp_Command: 'pay',
-          vnp_TmnCode: vnpayConfig.tmnCode,
-          vnp_Amount: vnpAmount,
-          vnp_CreateDate: dateFormat(new Date(), 'yyyyMMddHHmmss'),
-          vnp_CurrCode: vnpayConfig.currencyCode,
-          vnp_IpAddr: payment.paymentDetails.ipAddress,
-          vnp_Locale: vnpayConfig.locale,
-          vnp_OrderInfo: payment.paymentDetails.orderInfo,
-          vnp_OrderType: 'billpayment',
-          vnp_ReturnUrl: payment.paymentDetails.returnUrl, // Đã đảm bảo là URL tuyệt đối
-          vnp_TxnRef: payment.transactionId,
-          vnp_ExpireDate: dateFormat(new Date(Date.now() + 15 * 60 * 1000), 'yyyyMMddHHmmss')
-        };
-
-        if (payment.paymentDetails.bankCode) {
-          vnpParams.vnp_BankCode = payment.paymentDetails.bankCode;
-        }
-
-        // Tạo chữ ký
-        vnpParams.vnp_SecureHash = this.createSignature(vnpParams);
-
-        // Tạo URL thanh toán
-        const paymentUrl = `${vnpayConfig.vnpayHost}${vnpayConfig.endpoints.payment}?${qs.stringify(vnpParams, { encode: true })}`;
-
-        console.log('Đã tạo payment URL thủ công:', {
-          transactionId: payment.transactionId,
-          returnUrl: payment.paymentDetails.returnUrl,
-          paymentUrl: paymentUrl
-        });
-
-        return {
-          success: true,
-          paymentId: payment._id,
-          paymentUrl: paymentUrl,
-          transactionId: transactionId,
-          requiresPayment: true
-        };
+        console.error('Error creating VNPay payment URL:', error);
+        await session.abortTransaction();
+        throw new Error(`Lỗi tạo URL thanh toán VNPay: ${error.message}`);
       }
     } catch (error) {
-      throw new Error(`Lỗi tạo thanh toán VNPay: ${error.message}`);
+      await session.abortTransaction();
+      console.error('Error in createPayment:', error);
+      throw error;
+    } finally {
+      session.endSession();
     }
   },
 
   /**
    * Xác thực và xử lý callback từ VNPay
    * @param {Object} vnpParams - Tham số từ VNPay
-   * @returns {Object} Kết quả xử lý
+   * @returns {Promise<Object>} Kết quả xử lý
    */
   async verifyReturnUrl(vnpParams) {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
       console.log('VNPay callback params:', JSON.stringify(vnpParams, null, 2));
 
@@ -237,19 +237,24 @@ const vnpayService = {
       console.log(`Processing VNPay transaction: ${transactionId}, response code: ${responseCode}`);
 
       const payment = await Payment.findOne({ transactionId })
-        .populate('user subscription.package');
+        .populate('user subscription.package')
+        .session(session);
 
       if (!payment) {
         console.error(`Payment not found for transaction: ${transactionId}`);
         throw new Error('Không tìm thấy giao dịch');
       }
 
-      console.log(`Found payment record:`, {
-        id: payment._id,
-        userId: payment.user?._id,
-        packageId: payment.subscription?.package?._id,
-        status: payment.status
-      });
+      // Kiểm tra trạng thái hiện tại
+      if (payment.status === 'SUCCESS') {
+        console.log(`Payment ${transactionId} already processed`);
+        await session.commitTransaction();
+        return {
+          success: true,
+          payment,
+          message: 'Giao dịch đã được xử lý trước đó'
+        };
+      }
 
       // Cập nhật thông tin thanh toán
       payment.paymentDetails = {
@@ -264,7 +269,7 @@ const vnpayService = {
 
       // Cập nhật trạng thái thanh toán
       if (responseCode === '00') {
-        payment.status = 'completed';
+        payment.status = 'SUCCESS';
         
         // Kích hoạt gói đăng ký
         try {
@@ -283,14 +288,15 @@ const vnpayService = {
         } catch (error) {
           console.error('Error activating subscription:', error);
           payment.paymentDetails.error = error.message;
+          throw error;
         }
       } else {
-        payment.status = 'failed';
+        payment.status = 'FAILED';
         console.log(`Payment failed with response code: ${responseCode}`);
       }
 
-      await payment.save();
-      console.log(`Payment record updated successfully. New status: ${payment.status}`);
+      await payment.save({ session });
+      await session.commitTransaction();
 
       return {
         success: responseCode === '00',
@@ -298,90 +304,84 @@ const vnpayService = {
         message: responseCode === '00' ? 'Thanh toán thành công' : 'Thanh toán thất bại'
       };
     } catch (error) {
+      await session.abortTransaction();
       console.error('Error processing VNPay return:', error);
       throw error;
+    } finally {
+      session.endSession();
     }
   },
 
   /**
    * Xử lý IPN từ VNPay
-   * @param {Object} vnpParams - Tham số từ VNPay
-   * @returns {Object} Kết quả xử lý
+   * @param {Object} params - Tham số từ VNPay
+   * @returns {Promise<Object>} Kết quả xử lý
    */
-  async verifyIPN(vnpParams) {
+  async handleIPN(params) {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
       // Xác thực chữ ký
-      if (!this.verifySignature(vnpParams)) {
-        return {
-          RspCode: '97',
-          Message: 'Chu ky khong hop le'
-        };
+      if (!this.verifySignature(params)) {
+        throw new Error('Chữ ký không hợp lệ');
       }
 
-      const transactionId = vnpParams.vnp_TxnRef;
-      const responseCode = vnpParams.vnp_ResponseCode;
+      const payment = await Payment.findOne({ transactionId: params.vnp_TxnRef })
+        .session(session);
 
-      // Kiểm tra giao dịch
-      const payment = await Payment.findOne({ transactionId }).populate('user subscription.package');
       if (!payment) {
+        throw new Error('Không tìm thấy giao dịch');
+      }
+
+      // Kiểm tra trạng thái hiện tại
+      if (payment.status === 'SUCCESS') {
+        console.log(`Payment ${params.vnp_TxnRef} already processed`);
+        await session.commitTransaction();
         return {
-          RspCode: '01',
-          Message: 'Khong tim thay giao dich'
+          success: true,
+          payment,
+          message: 'Giao dịch đã được xử lý trước đó'
         };
       }
 
-      // Kiểm tra trạng thái
-      if (payment.status === 'completed') {
-        return {
-          RspCode: '02',
-          Message: 'Giao dich da duoc xu ly'
-        };
-      }
+      // Cập nhật trạng thái giao dịch
+      payment.status = params.vnp_ResponseCode === '00' ? 'SUCCESS' : 'FAILED';
+      payment.paymentDetails.ipnResponse = params;
+      payment.paymentDetails.ipnProcessedAt = new Date();
 
-      // Cập nhật thông tin thanh toán
-      payment.paymentDetails = {
-        ...payment.paymentDetails,
-        responseCode: responseCode,
-        bankCode: vnpParams.vnp_BankCode,
-        bankTranNo: vnpParams.vnp_BankTranNo,
-        cardType: vnpParams.vnp_CardType,
-        payDate: vnpParams.vnp_PayDate ? dateFormat(vnpParams.vnp_PayDate, 'yyyy-MM-dd HH:mm:ss') : new Date().toISOString(),
-        gatewayResponse: vnpParams
-      };
-
-      if (responseCode === '00') {
-        payment.status = 'completed';
-        
-        // Kích hoạt gói đăng ký
+      // Nếu thanh toán thành công, kích hoạt gói đăng ký
+      if (payment.status === 'SUCCESS') {
         try {
           await subscriptionService.subscribePackage(
-            payment.user._id,
-            payment.subscription.package._id,
+            payment.user,
+            payment.subscription.package,
             {
               transactionId: payment.transactionId,
               amount: payment.totalAmount
             }
           );
         } catch (error) {
-          console.error('Lỗi kích hoạt gói đăng ký qua IPN:', error);
+          console.error('Error activating subscription from IPN:', error);
           payment.paymentDetails.error = error.message;
+          throw error;
         }
-      } else {
-        payment.status = 'failed';
       }
 
-      await payment.save();
+      await payment.save({ session });
+      await session.commitTransaction();
 
       return {
-        RspCode: '00',
-        Message: 'Confirm Success'
+        success: true,
+        payment,
+        message: payment.status === 'SUCCESS' ? 'Thanh toán thành công' : 'Thanh toán thất bại'
       };
     } catch (error) {
-      console.error('Lỗi xử lý IPN:', error);
-      return {
-        RspCode: '99',
-        Message: 'Loi khong xac dinh'
-      };
+      await session.abortTransaction();
+      console.error('Error processing VNPay IPN:', error);
+      throw error;
+    } finally {
+      session.endSession();
     }
   },
 
@@ -410,8 +410,8 @@ const vnpayService = {
         // Cập nhật thông tin giao dịch nếu cần
         if (queryResult.vnp_ResponseCode === '00') {
           // Nếu giao dịch thành công trên VNPay nhưng chưa cập nhật trong hệ thống
-          if (payment.status !== 'completed' && queryResult.vnp_TransactionStatus === '00') {
-            payment.status = 'completed';
+          if (payment.status !== 'SUCCESS' && queryResult.vnp_TransactionStatus === '00') {
+            payment.status = 'SUCCESS';
             payment.paymentDetails = {
               ...payment.paymentDetails,
               responseCode: queryResult.vnp_ResponseCode,
@@ -477,7 +477,7 @@ const vnpayService = {
         throw new Error('Không tìm thấy giao dịch');
       }
 
-      if (payment.status !== 'completed') {
+      if (payment.status !== 'SUCCESS') {
         throw new Error('Chỉ có thể hoàn tiền cho giao dịch đã hoàn thành');
       }
 
@@ -510,7 +510,7 @@ const vnpayService = {
 
         if (refundResult.vnp_ResponseCode === '00') {
           // Cập nhật trạng thái giao dịch
-          payment.status = 'refunded';
+          payment.status = 'SUCCESS';
           payment.paymentDetails.refund = {
             amount: amount,
             reason: reason,
@@ -557,15 +557,31 @@ const vnpayService = {
   },
 
   /**
-   * Lấy danh sách ngân hàng hỗ trợ
-   * @returns {Array} Danh sách ngân hàng
+   * Lấy danh sách ngân hàng hỗ trợ VNPay
+   * @returns {Promise<Array>} Danh sách ngân hàng
    */
-  async getBankList() {
+  async getSupportedBanks() {
     try {
-      const response = await vnpayInstance.getBankList();
-      return response.data;
+      const response = await axios.get(`${vnpayConfig.vnpayHost}${vnpayConfig.endpoints.getBanks}`, {
+        params: {
+          merchantCode: vnpayConfig.tmnCode,
+          timestamp: Date.now()
+        }
+      });
+
+      if (response.data && response.data.banks) {
+        return response.data.banks.map(bank => ({
+          code: bank.bankCode,
+          name: bank.bankName,
+          logo: bank.bankLogo,
+          shortName: bank.bankShortName
+        }));
+      }
+
+      return [];
     } catch (error) {
-      throw new Error('Không thể lấy danh sách ngân hàng: ' + error.message);
+      console.error('Lỗi lấy danh sách ngân hàng VNPay:', error);
+      throw new Error('Không thể lấy danh sách ngân hàng');
     }
   }
 };

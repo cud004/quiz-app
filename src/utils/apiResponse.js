@@ -1,97 +1,138 @@
 /**
- * Lớp ApiResponse để chuẩn hóa format phản hồi
- * Đảm bảo tất cả các API đều trả về cùng một cấu trúc
+ * Class xử lý response API thống nhất
  */
 class ApiResponse {
   /**
-   * Trả về thành công
-   * @param {object} data - Dữ liệu trả về
-   * @param {string} message - Thông báo thành công
-   * @param {number} statusCode - HTTP status code
+   * Trả về response thành công
+   * @param {Object} res - Express response object
+   * @param {Object} data - Data cần trả về
+   * @param {string} message - Message thành công
+   * @returns {Object} Response object
    */
-  static success(res, data = null, message = 'Success', statusCode = 200) {
-    return res.status(statusCode).json({
+  static success(res, data, message = 'Success') {
+    return res.status(200).json({
       success: true,
-      message,
-      data
-    });
-  }
-
-  /**
-   * Trả về thành công với phân trang
-   * @param {object} data - Dữ liệu trả về
-   * @param {object} pagination - Thông tin phân trang
-   * @param {string} message - Thông báo thành công
-   * @param {number} statusCode - HTTP status code
-   */
-  static paginated(res, data, pagination, message = 'Success', statusCode = 200) {
-    return res.status(statusCode).json({
-      success: true,
-      message,
       data,
-      pagination
+      message
     });
   }
 
   /**
-   * Trả về lỗi
-   * @param {string} message - Thông báo lỗi
-   * @param {number} statusCode - HTTP status code
-   * @param {array} errors - Chi tiết lỗi
+   * Trả về response lỗi
+   * @param {Object} res - Express response object
+   * @param {Error|string} error - Error object hoặc error message
+   * @param {number} status - HTTP status code
+   * @returns {Object} Response object
    */
-  static error(res, message = 'Error', statusCode = 500, errors = null) {
-    const response = {
+  static error(res, error, status = 400) {
+    const errorResponse = {
       success: false,
-      message,
+      error: {
+        code: 'UNKNOWN_ERROR',
+        message: error.message || error,
+        details: error.details || {}
+      }
     };
 
-    if (errors) {
-      response.errors = errors;
+    // Nếu error là object có code
+    if (error.code) {
+      errorResponse.error.code = error.code;
     }
 
-    return res.status(statusCode).json(response);
+    return res.status(status).json(errorResponse);
   }
 
   /**
-   * Trả về lỗi validation
-   * @param {array} errors - Chi tiết lỗi validation
-   * @param {string} message - Thông báo lỗi
+   * Trả về response lỗi gateway
+   * @param {Object} res - Express response object
+   * @param {string} gateway - Tên gateway (vnpay, momo)
+   * @param {Error} error - Error object
+   * @returns {Object} Response object
    */
-  static validationError(res, errors, message = 'Validation failed') {
-    return this.error(res, message, 400, errors);
+  static gatewayError(res, gateway, error) {
+    return this.error(res, {
+      code: `${gateway.toUpperCase()}_ERROR`,
+      message: error.message,
+      details: error.details || {}
+    });
   }
 
   /**
-   * Trả về lỗi bad request (400)
-   * @param {string} message - Thông báo lỗi
-   * @param {array} errors - Chi tiết lỗi
+   * Trả về response lỗi validation
+   * @param {Object} res - Express response object
+   * @param {Object} error - Validation error object
+   * @returns {Object} Response object
    */
-  static badRequest(res, message = 'Bad request', errors = null) {
-    return this.error(res, message, 400, errors);
+  static validationError(res, error) {
+    return this.error(res, {
+      code: 'VALIDATION_ERROR',
+      message: 'Dữ liệu không hợp lệ',
+      details: error.details || error
+    }, 422);
   }
 
   /**
-   * Trả về lỗi không tìm thấy
-   * @param {string} message - Thông báo lỗi
+   * Trả về response lỗi không tìm thấy
+   * @param {Object} res - Express response object
+   * @param {string} message - Error message
+   * @returns {Object} Response object
    */
-  static notFound(res, message = 'Resource not found') {
-    return this.error(res, message, 404);
+  static notFound(res, message = 'Không tìm thấy') {
+    return this.error(res, {
+      code: 'NOT_FOUND',
+      message
+    }, 404);
   }
 
   /**
-   * Trả về lỗi không được phép
-   * @param {string} message - Thông báo lỗi
+   * Trả về response lỗi không có quyền
+   * @param {Object} res - Express response object
+   * @param {string} message - Error message
+   * @returns {Object} Response object
    */
-  static forbidden(res, message = 'Forbidden') {
-    return this.error(res, message, 403);
+  static forbidden(res, message = 'Không có quyền truy cập') {
+    return this.error(res, {
+      code: 'FORBIDDEN',
+      message
+    }, 403);
+  }
+  static unauthorized(res, message = 'Không xác thực') {
+    return this.error(res, {
+      code: 'UNAUTHORIZED',
+      message
+    }, 401);
   }
 
   /**
-   * Trả về lỗi không được xác thực
-   * @param {string} message - Thông báo lỗi
+   * Trả về response lỗi server
+   * @param {Object} res - Express response object
+   * @param {Error} error - Error object
+   * @returns {Object} Response object
    */
-  static unauthorized(res, message = 'Unauthorized') {
-    return this.error(res, message, 401);
+  static serverError(res, error) {
+    console.error('Server Error:', error);
+    return this.error(res, {
+      code: 'SERVER_ERROR',
+      message: 'Lỗi server',
+      details: process.env.NODE_ENV === 'development' ? error : {}
+    }, 500);
+  }
+
+  /**
+   * Trả về response phân trang
+   * @param {Object} res - Express response object
+   * @param {Array} data - Danh sách dữ liệu
+   * @param {Object} pagination - Thông tin phân trang
+   * @param {string} message - Thông báo
+   * @returns {Object} Response object
+   */
+  static paginated(res, data, pagination, message = 'Success') {
+    return res.status(200).json({
+      success: true,
+      data,
+      pagination,
+      message
+    });
   }
 }
 

@@ -7,11 +7,12 @@ const customMessages = {
   'string.max': '{{#label}} không được vượt quá {{#limit}} ký tự',
   'number.min': '{{#label}} phải lớn hơn hoặc bằng {{#limit}}',
   'any.required': '{{#label}} là bắt buộc',
-  'any.only': '{{#label}} chỉ được phép là một trong những giá trị: {{#valids}}'
+  'any.only': '{{#label}} chỉ được phép là một trong những giá trị: {{#valids}}',
+  'string.uri': '{{#label}} phải là một URL hợp lệ'
 };
 
-// Schema cho việc tạo phiên thanh toán
-const createPaymentSessionSchema = Joi.object({
+// Base schema
+const basePaymentSchema = Joi.object({
   packageId: Joi.string()
     .required()
     .messages(customMessages),
@@ -22,17 +23,115 @@ const createPaymentSessionSchema = Joi.object({
   returnUrl: Joi.string()
     .uri()
     .messages(customMessages),
-  bankCode: Joi.string()
-    .when('paymentMethod', {
-      is: 'vnpay', 
-      then: Joi.string(),
-      otherwise: Joi.optional()
-    })
+  cancelUrl: Joi.string()
+    .uri()
     .messages(customMessages)
 });
 
-// Schema cho việc yêu cầu hoàn tiền
+// VNPay schema
+const vnpaySchema = Joi.object({
+  bankCode: Joi.string()
+    .required()
+    .messages(customMessages)
+});
+
+// MoMo schema
+const momoSchema = Joi.object({
+  // MoMo specific fields
+});
+
+// Combined schema for payment session
+const createPaymentSessionSchema = Joi.object({
+  packageId: Joi.string().required().messages({
+    'string.empty': 'ID gói dịch vụ không được để trống',
+    'any.required': 'ID gói dịch vụ là bắt buộc'
+  }),
+  paymentMethod: Joi.string().valid('vnpay', 'momo').required().messages({
+    'string.empty': 'Phương thức thanh toán không được để trống',
+    'any.only': 'Phương thức thanh toán phải là vnpay hoặc momo',
+    'any.required': 'Phương thức thanh toán là bắt buộc'
+  }),
+  bankCode: Joi.string().when('paymentMethod', {
+    is: 'vnpay',
+    then: Joi.string().required().messages({
+      'string.empty': 'Mã ngân hàng không được để trống',
+      'any.required': 'Mã ngân hàng là bắt buộc khi sử dụng VNPay'
+    }),
+    otherwise: Joi.string().optional()
+  }),
+  returnUrl: Joi.string().uri().optional().messages({
+    'string.uri': 'URL trả về không hợp lệ'
+  }),
+  cancelUrl: Joi.string().uri().optional().messages({
+    'string.uri': 'URL hủy không hợp lệ'
+  })
+});
+
+// Schema cho VNPay response
+const vnpayResponseSchema = Joi.object({
+  vnp_Amount: Joi.string().required(),
+  vnp_BankCode: Joi.string().required(),
+  vnp_BankTranNo: Joi.string().required(),
+  vnp_CardType: Joi.string().required(),
+  vnp_OrderInfo: Joi.string().required(),
+  vnp_PayDate: Joi.string().required(),
+  vnp_ResponseCode: Joi.string().required(),
+  vnp_TmnCode: Joi.string().required(),
+  vnp_TransactionNo: Joi.string().required(),
+  vnp_TransactionStatus: Joi.string().required(),
+  vnp_TxnRef: Joi.string().required(),
+  vnp_SecureHash: Joi.string().required(),
+  vnp_SecureHashType: Joi.string().valid('SHA256', 'SHA512').optional()
+});
+
+// Schema cho VNPay payment request
+const vnpayPaymentSchema = Joi.object({
+  packageId: Joi.string().required(),
+  paymentMethod: Joi.string().valid('vnpay').required(),
+  bankCode: Joi.string().allow('').optional(),
+  returnUrl: Joi.string().uri().required(),
+  cancelUrl: Joi.string().uri().required(),
+  ipAddress: Joi.string().ip().required()
+});
+
+// Schema cho VNPay IPN
+const vnpayIPNSchema = Joi.object({
+  vnp_Amount: Joi.string().required(),
+  vnp_BankCode: Joi.string().required(),
+  vnp_BankTranNo: Joi.string().required(),
+  vnp_CardType: Joi.string().required(),
+  vnp_OrderInfo: Joi.string().required(),
+  vnp_PayDate: Joi.string().required(),
+  vnp_ResponseCode: Joi.string().required(),
+  vnp_TmnCode: Joi.string().required(),
+  vnp_TransactionNo: Joi.string().required(),
+  vnp_TransactionStatus: Joi.string().required(),
+  vnp_TxnRef: Joi.string().required(),
+  vnp_SecureHash: Joi.string().required(),
+  vnp_SecureHashType: Joi.string().valid('SHA256', 'SHA512').required()
+});
+
+const momoResponseSchema = Joi.object({
+  partnerCode: Joi.string().required(),
+  orderId: Joi.string().required(),
+  requestId: Joi.string().required(),
+  amount: Joi.number().required(),
+  orderInfo: Joi.string().required(),
+  orderType: Joi.string().required(),
+  transId: Joi.string().required(),
+  resultCode: Joi.number().required(),
+  message: Joi.string().required(),
+  payUrl: Joi.string().uri().optional(),
+  qrCodeUrl: Joi.string().uri().optional(),
+  deeplink: Joi.string().uri().optional(),
+  signature: Joi.string().required()
+});
+
+// Refund schema
 const refundRequestSchema = Joi.object({
+  paymentId: Joi.string()
+    .required()
+    .messages(customMessages),
   reason: Joi.string()
     .min(10)
     .max(500)
@@ -41,47 +140,98 @@ const refundRequestSchema = Joi.object({
   amount: Joi.number()
     .min(1)
     .messages(customMessages)
-});
+}).messages(customMessages);
 
-// Schema cho việc xác nhận thanh toán từ VNPay
-const vnpayResponseSchema = Joi.object({
-  vnp_TmnCode: Joi.string().optional(),
-  vnp_Amount: Joi.string().optional(),
-  vnp_BankCode: Joi.string().optional(),
-  vnp_BankTranNo: Joi.string().optional(),
-  vnp_CardType: Joi.string().optional(),
-  vnp_PayDate: Joi.string().optional(),
-  vnp_OrderInfo: Joi.string().optional(),
-  vnp_TransactionNo: Joi.string().optional(),
-  vnp_ResponseCode: Joi.string().optional(),
-  vnp_TransactionStatus: Joi.string().optional(),
-  vnp_TxnRef: Joi.string().optional(),
-  vnp_SecureHash: Joi.string().optional(),
-  vnp_SecureHashType: Joi.string().optional()
-}).unknown(true); // Allow additional parameters from VNPAY
-
-// Schema cho việc xác nhận thanh toán từ MoMo
-const momoResponseSchema = Joi.object({
-  orderId: Joi.string()
-    .required()
-    .messages(customMessages),
-  resultCode: Joi.string()
-    .required()
-    .messages(customMessages),
-  amount: Joi.number()
-    .required()
-    .messages(customMessages),
-  transId: Joi.string()
-    .required()
-    .messages(customMessages),
-  message: Joi.string()
+// Query schema
+const queryTransactionSchema = Joi.object({
+  transactionId: Joi.string()
     .required()
     .messages(customMessages)
-}).unknown(true);
+}).messages(customMessages);
+
+// Schema cho payment record
+const paymentRecordSchema = Joi.object({
+  user: Joi.string().required(),
+  packageId: Joi.string().required(),
+  amount: Joi.number().required(),
+  paymentMethod: Joi.string().valid('vnpay', 'momo').required(),
+  status: Joi.string().valid('PENDING', 'SUCCESS', 'FAILED').required(),
+  transactionId: Joi.string().required(),
+  paymentData: Joi.object().required()
+});
+
+// Schema cho payment history query
+const paymentHistoryQuerySchema = Joi.object({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(10),
+  status: Joi.string().valid('PENDING', 'SUCCESS', 'FAILED').optional(),
+  startDate: Joi.date().iso().optional(),
+  endDate: Joi.date().iso().min(Joi.ref('startDate')).optional()
+});
+
+// Schema cho payment status update
+const paymentStatusUpdateSchema = Joi.object({
+  status: Joi.string().valid('PENDING', 'SUCCESS', 'FAILED').required(),
+  message: Joi.string().optional()
+});
+
+// Hàm validate payment data
+const validatePaymentData = (data) => {
+  return createPaymentSessionSchema.validate(data, { abortEarly: false });
+};
+
+// Hàm validate VNPay response
+const validateVNPayResponse = (data) => {
+  return vnpayResponseSchema.validate(data, { abortEarly: false });
+};
+
+// Hàm validate VNPay payment request
+const validateVNPayPayment = (data) => {
+  return vnpayPaymentSchema.validate(data, { abortEarly: false });
+};
+
+// Hàm validate VNPay IPN
+const validateVNPayIPN = (data) => {
+  return vnpayIPNSchema.validate(data, { abortEarly: false });
+};
+
+// Hàm validate MoMo response
+const validateMoMoResponse = (data) => {
+  return momoResponseSchema.validate(data, { abortEarly: false });
+};
+
+// Hàm validate payment record
+const validatePaymentRecord = (data) => {
+  return paymentRecordSchema.validate(data, { abortEarly: false });
+};
+
+// Hàm validate payment history query
+const validatePaymentHistoryQuery = (data) => {
+  return paymentHistoryQuerySchema.validate(data, { abortEarly: false });
+};
+
+// Hàm validate payment status update
+const validatePaymentStatusUpdate = (data) => {
+  return paymentStatusUpdateSchema.validate(data, { abortEarly: false });
+};
 
 module.exports = {
   createPaymentSessionSchema,
-  refundRequestSchema,
   vnpayResponseSchema,
-  momoResponseSchema
+  vnpayPaymentSchema,
+  vnpayIPNSchema,
+  momoResponseSchema,
+  refundRequestSchema,
+  queryTransactionSchema,
+  paymentRecordSchema,
+  paymentHistoryQuerySchema,
+  paymentStatusUpdateSchema,
+  validatePaymentData,
+  validateVNPayResponse,
+  validateVNPayPayment,
+  validateVNPayIPN,
+  validateMoMoResponse,
+  validatePaymentRecord,
+  validatePaymentHistoryQuery,
+  validatePaymentStatusUpdate
 }; 

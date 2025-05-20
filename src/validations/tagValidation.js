@@ -52,8 +52,18 @@ const tagIdParamSchema = Joi.object({
 
 // Tag search query schema
 const tagSearchQuerySchema = Joi.object({
+  id: Joi.string().regex(/^[0-9a-fA-F]{24}$/).messages({
+    'string.pattern.base': 'Tag ID must be a valid MongoDB ObjectId'
+  }),
+  tag: Joi.string().regex(/^[0-9a-fA-F]{24}$/).messages({
+    'string.pattern.base': 'Tag ID must be a valid MongoDB ObjectId'
+  }),
+  text: Joi.string(),
   name: Joi.string(),
   category: Joi.string(),
+  topic: Joi.string().regex(/^[0-9a-fA-F]{24}$/).messages({
+    'string.pattern.base': 'Topic ID must be a valid MongoDB ObjectId'
+  }),
   isActive: Joi.boolean(),
   page: Joi.number().min(1).default(1),
   limit: Joi.number().min(1).max(100).default(10),

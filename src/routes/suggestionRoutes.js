@@ -5,5 +5,6 @@ const { protect } = require('../middleware');
 
 router.use(protect);
 router.get('/', suggestionController.getSuggestions);
+router.get('/tags', suggestionController.getTagSuggestions);
 
 module.exports = router; 

@@ -402,13 +402,13 @@ const paymentService = {
     const { page = 1, limit = 10 } = options;
     const skip = (page - 1) * limit;
     
-    const payments = await Payment.find({ user: userId })
+    const payments = await Payment.find({ user: new mongoose.Types.ObjectId(userId) })
       .populate('subscription.package')
       .skip(skip)
       .limit(limit)
       .sort({ createdAt: -1 });
     
-    const total = await Payment.countDocuments({ user: userId });
+    const total = await Payment.countDocuments({ user: new mongoose.Types.ObjectId(userId) });
     
     return {
       payments,

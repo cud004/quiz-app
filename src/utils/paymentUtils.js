@@ -12,15 +12,12 @@ const paymentConfig = require('../config/payment');
  * @returns {number} Số tiền đã được điều chỉnh
  */
 function calculateGatewayAmount(amount, gateway) {
-  // Đảm bảo amount là số nguyên
   const baseAmount = Math.round(amount);
-  
   switch (gateway) {
     case 'vnpay':
-      // VNPay yêu cầu số tiền phải là số tiền gốc * 100
+      // KHÔNG nhân 100 với vnpay.js.org
       return baseAmount;
     case 'momo':
-      // MoMo sử dụng đúng số tiền trong database
       return baseAmount;
     default:
       return baseAmount;

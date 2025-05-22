@@ -30,9 +30,7 @@ const basePaymentSchema = Joi.object({
 
 // VNPay schema
 const vnpaySchema = Joi.object({
-  bankCode: Joi.string()
-    .required()
-    .messages(customMessages)
+  bankCode: Joi.string().optional().messages(customMessages)
 });
 
 // MoMo schema
@@ -51,14 +49,7 @@ const createPaymentSessionSchema = Joi.object({
     'any.only': 'Phương thức thanh toán phải là vnpay hoặc momo',
     'any.required': 'Phương thức thanh toán là bắt buộc'
   }),
-  bankCode: Joi.string().when('paymentMethod', {
-    is: 'vnpay',
-    then: Joi.string().required().messages({
-      'string.empty': 'Mã ngân hàng không được để trống',
-      'any.required': 'Mã ngân hàng là bắt buộc khi sử dụng VNPay'
-    }),
-    otherwise: Joi.string().optional()
-  }),
+  bankCode: Joi.string().optional(),
   returnUrl: Joi.string().uri().optional().messages({
     'string.uri': 'URL trả về không hợp lệ'
   }),
@@ -126,21 +117,6 @@ const momoResponseSchema = Joi.object({
   deeplink: Joi.string().uri().optional(),
   signature: Joi.string().required()
 });
-
-// Refund schema
-const refundRequestSchema = Joi.object({
-  paymentId: Joi.string()
-    .required()
-    .messages(customMessages),
-  reason: Joi.string()
-    .min(10)
-    .max(500)
-    .required()
-    .messages(customMessages),
-  amount: Joi.number()
-    .min(1)
-    .messages(customMessages)
-}).messages(customMessages);
 
 // Query schema
 const queryTransactionSchema = Joi.object({
@@ -221,7 +197,6 @@ module.exports = {
   vnpayPaymentSchema,
   vnpayIPNSchema,
   momoResponseSchema,
-  refundRequestSchema,
   queryTransactionSchema,
   paymentRecordSchema,
   paymentHistoryQuerySchema,

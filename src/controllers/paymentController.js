@@ -29,17 +29,17 @@ const paymentController = {
       // Validate request data
       const { error } = validatePaymentData(req.body);
       if (error) {
-        return ApiResponse.badRequest(res, error.details[0].message);
+        return ApiResponse.error(res, error.details[0].message);
       }
 
       // Thêm log chi tiết
-      console.log('[PaymentController] Nhận yêu cầu tạo payment session:', { 
-        userId, 
-        packageId, 
-        paymentMethod, 
-        bankCode, 
-        body: req.body 
-      });
+      // console.log('[PaymentController] Nhận yêu cầu tạo payment session:', { 
+      //   userId, 
+      //   packageId, 
+      //   paymentMethod, 
+      //   bankCode, 
+      //   body: req.body 
+      // });
 
       // Gọi service tạo payment session
       const result = await paymentService.createPaymentSession(
@@ -58,7 +58,7 @@ const paymentController = {
       return ApiResponse.success(res, result);
     } catch (error) {
       console.error('Error creating payment session:', error);
-      return ApiResponse.error(res, error.message);
+      return ApiResponse.error(res, error?.message || JSON.stringify(error) || 'Unknown error');
     }
   },
   
@@ -108,11 +108,13 @@ const paymentController = {
       const userId = req.user._id;
       const { page, limit } = req.query;
 
+      // Gọi service lấy lịch sử thanh toán
       const result = await paymentService.getUserPaymentHistory(userId, {
         page: parseInt(page) || 1,
         limit: parseInt(limit) || 10
       });
 
+      // Trả về đúng dữ liệu lịch sử thanh toán
       return ApiResponse.success(res, result);
     } catch (error) {
       console.error('Error getting payment history:', error);
@@ -248,25 +250,32 @@ const paymentController = {
   // VNPay specific routes (for gateway only)
   async handleVnpayCallback(req, res) {
     try {
+      console.log('[PaymentController] VNPay callback received:', req.query);
+
       // Validate VNPay response
       const { error } = validateVNPayResponse(req.query);
       if (error) {
-        console.error('Invalid VNPay callback data:', error);
-        return res.status(400).json({ message: 'Dữ liệu callback không hợp lệ', details: error.details });
+        console.error('[PaymentController] Invalid VNPay callback data:', error);
+        // Redirect về FE với trạng thái lỗi
+        const redirectUrl = `http://localhost:5173/payment-result?status=error&message=${encodeURIComponent('Dữ liệu callback không hợp lệ')}`;
+        return res.redirect(redirectUrl);
       }
 
-      // Xử lý callback
+      // Xử lý callback: xác thực, cập nhật DB
       const result = await vnpayService.verifyReturnUrl(req.query);
-      
-      // Redirect về trang kết quả
-      const redirectUrl = result.success
-        ? `${paymentConfig.defaultReturnUrl}?status=success&transactionId=${result.payment.transactionId}`
-        : `${paymentConfig.defaultReturnUrl}?status=failed&transactionId=${result.payment.transactionId}`;
+      console.log('[PaymentController] VNPay callback result:', result);
 
-      res.redirect(redirectUrl);
+      // Redirect về FE với trạng thái và transactionId
+      const status = result.success ? 'success' : 'fail';
+      const transactionId = req.query.vnp_TxnRef || '';
+      const message = encodeURIComponent(result.message || '');
+      const redirectUrl = `http://localhost:3000/payment-result?status=${status}&transactionId=${transactionId}&message=${message}`;
+      return res.redirect(redirectUrl);
     } catch (error) {
-      console.error('Error handling VNPay callback:', error);
-      res.redirect(`${paymentConfig.defaultReturnUrl}?status=error&message=${encodeURIComponent(error.message)}`);
+      console.error('[PaymentController] Error handling VNPay callback:', error);
+      // Redirect về FE với trạng thái lỗi
+      const redirectUrl = `http://localhost:3000/payment-result?status=error&message=${encodeURIComponent(error.message)}`;
+      return res.redirect(redirectUrl);
     }
   },
 
@@ -307,10 +316,22 @@ const paymentController = {
   // MoMo specific routes (for gateway only)
   async handleMomoCallback(req, res) {
     try {
-      const result = await momoService.handleCallback(req.query);
-      res.json(result);
+      console.log('[PaymentController] MoMo callback received:', req.query);
+
+      // Xử lý callback
+      const result = await momoService.handleMomoReturn(req.query);
+      console.log('[PaymentController] MoMo callback result:', result);
+
+      // Redirect về trang kết quả
+      const redirectUrl = result.success
+        ? `${paymentConfig.defaultReturnUrl}?status=success&transactionId=${result.payment.transactionId}`
+        : `${paymentConfig.defaultReturnUrl}?status=failed&transactionId=${result.payment.transactionId}&message=${encodeURIComponent(result.message || 'Thanh toán thất bại')}`;
+
+      console.log('[PaymentController] Redirecting to:', redirectUrl);
+      res.redirect(redirectUrl);
     } catch (error) {
-      res.status(500).json({ message: error.message });
+      console.error('[PaymentController] Error handling MoMo callback:', error);
+      res.redirect(`${paymentConfig.defaultReturnUrl}?status=error&message=${encodeURIComponent(error.message)}`);
     }
   },
 
@@ -330,19 +351,10 @@ const paymentController = {
    */
   async handlePaymentResult(req, res) {
     try {
-      const { method, status, message, transactionId } = req.query;
-      
-      // Kiểm tra trạng thái thanh toán
-      if (status === 'success') {
-        // Nếu thành công, chuyển hướng về trang success
-        return res.redirect(`/payment/success?transactionId=${transactionId}`);
-      } else {
-        // Nếu thất bại, chuyển hướng về trang error
-        return res.redirect(`/payment/error?message=${message || 'Thanh toán thất bại'}`);
-      }
+      const { status, message, transactionId } = req.query;
+      return res.json({ status, message, transactionId });
     } catch (error) {
-      console.error('Error handling payment result:', error);
-      return res.redirect('/payment/error?message=Có lỗi xảy ra khi xử lý kết quả thanh toán');
+      return res.json({ status: 'error', message: 'Có lỗi xảy ra khi xử lý kết quả thanh toán' });
     }
   }
 };

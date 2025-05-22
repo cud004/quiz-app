@@ -108,7 +108,7 @@ const momoService = {
    */
   async handleMomoReturn(requestBody) {
     try {
-      console.log('MoMo Callback Data:', JSON.stringify(requestBody, null, 2));
+      console.log('[MoMoService] Callback Data:', JSON.stringify(requestBody, null, 2));
       
       const { orderId, resultCode, message, amount, transId, payType, extraData } = requestBody;
       
@@ -116,11 +116,19 @@ const momoService = {
       const payment = await Payment.findOne({ transactionId: orderId }).populate('user subscription.package');
       
       if (!payment) {
+        console.error('[MoMoService] Payment not found:', orderId);
         throw new Error('Không tìm thấy giao dịch');
       }
 
+      console.log('[MoMoService] Found payment:', {
+        transactionId: payment.transactionId,
+        status: payment.status,
+        amount: payment.totalAmount
+      });
+
       // Kiểm tra nếu giao dịch đã được xử lý
       if (payment.status === 'SUCCESS') {
+        console.log('[MoMoService] Payment already processed:', orderId);
         return {
           success: true,
           message: 'Giao dịch đã được xử lý trước đó',
@@ -131,12 +139,14 @@ const momoService = {
       // Xác thực chữ ký
       const isValidSignature = this._verifyMomoSignature(requestBody);
       if (!isValidSignature) {
-        console.error('Invalid MoMo signature for transaction:', orderId);
+        console.error('[MoMoService] Invalid signature for transaction:', orderId);
         throw new Error('Chữ ký không hợp lệ');
       }
       
       // Kiểm tra mã phản hồi
       if (resultCode === 0 || resultCode === '0') {
+        console.log('[MoMoService] Payment successful, updating status');
+        
         // Cập nhật trạng thái thanh toán thành công
         payment.status = 'SUCCESS';
         payment.paymentDetails = {
@@ -150,19 +160,26 @@ const momoService = {
         };
         await payment.save();
         
+        console.log('[MoMoService] Payment status updated:', {
+          transactionId: payment.transactionId,
+          status: payment.status
+        });
+        
         // Giải mã extraData để lấy thông tin bổ sung (nếu có)
         let decodedExtraData = {};
         try {
           if (extraData) {
             const extraDataString = Buffer.from(extraData, 'base64').toString();
             decodedExtraData = JSON.parse(extraDataString);
+            console.log('[MoMoService] Decoded extraData:', decodedExtraData);
           }
         } catch (error) {
-          console.warn('Could not decode extraData:', error.message);
+          console.warn('[MoMoService] Could not decode extraData:', error.message);
         }
         
         // Kích hoạt gói đăng ký
         try {
+          console.log('[MoMoService] Activating subscription');
           await subscriptionService.subscribePackage(
             payment.user._id,
             payment.subscription.package._id,
@@ -172,6 +189,7 @@ const momoService = {
               extraData: decodedExtraData
             }
           );
+          console.log('[MoMoService] Subscription activated successfully');
 
           // Gửi email thông báo
           await AuthService.sendEmail({
@@ -186,8 +204,9 @@ const momoService = {
               paymentMethod: 'MoMo'
             }
           });
+          console.log('[MoMoService] Success email sent');
         } catch (error) {
-          console.error('Error processing subscription:', error);
+          console.error('[MoMoService] Error processing subscription:', error);
           payment.paymentDetails.error = error.message;
           await payment.save();
           throw error;
@@ -199,6 +218,12 @@ const momoService = {
           payment
         };
       } else {
+        console.log('[MoMoService] Payment failed:', {
+          transactionId: orderId,
+          resultCode,
+          message
+        });
+        
         // Cập nhật trạng thái thanh toán thất bại
         payment.status = 'FAILED';
         payment.paymentDetails = {
@@ -211,7 +236,7 @@ const momoService = {
           failedAt: new Date()
         };
         await payment.save();
-
+        
         // Gửi email thông báo
         try {
           await AuthService.sendEmail({
@@ -226,8 +251,9 @@ const momoService = {
               reason: message || 'Mã lỗi: ' + resultCode
             }
           });
+          console.log('[MoMoService] Failure email sent');
         } catch (emailError) {
-          console.error('Error sending payment failed email:', emailError);
+          console.error('[MoMoService] Error sending payment failed email:', emailError);
         }
         
         return {
@@ -238,7 +264,7 @@ const momoService = {
         };
       }
     } catch (error) {
-      console.error('Error handling MoMo return:', error);
+      console.error('[MoMoService] Error handling MoMo return:', error);
       throw error;
     }
   },

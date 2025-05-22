@@ -1,5 +1,6 @@
 const { VNPay, dateFormat } = require('vnpay');
-const vnpayConfig = require('../config/vnpay');
+const paymentConfig = require('../config/payment');
+const vnpayConfig = paymentConfig.vnpay;
 const mongoose = require('mongoose');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
@@ -12,14 +13,18 @@ const axios = require('axios');
 const AuthService = require('./auth/authService');
 
 // Khởi tạo VNPay instance với cấu hình
+console.log('VNPay config:', {
+  tmnCode: vnpayConfig.tmnCode,
+  secureSecret: vnpayConfig.hashSecret,
+  vnpayHost: vnpayConfig.url,
+  returnUrl: vnpayConfig.returnUrl
+});
 const vnpayInstance = new VNPay({
   tmnCode: vnpayConfig.tmnCode,
   secureSecret: vnpayConfig.hashSecret,
-  vnpayHost: vnpayConfig.vnpayHost,
+  vnpayHost: vnpayConfig.url,
   testMode: vnpayConfig.testMode,
-  hashAlgorithm: vnpayConfig.hashAlgorithm,
-  enableLog: vnpayConfig.enableLog,
-  logLevel: vnpayConfig.logLevel
+  hashAlgorithm: vnpayConfig.hashAlgorithm
 });
 
 // Hàm retry với delay
@@ -38,6 +43,19 @@ const retryWithDelay = async (fn, maxRetries = vnpayConfig.maxRetries, delay = v
   }
   throw lastError;
 };
+
+// Thêm hàm parseVnpDate để chuyển chuỗi ngày VNPay về Date
+function parseVnpDate(str) {
+  // str: 'yyyyMMddHHmmss'
+  if (!str || str.length !== 14) return new Date();
+  const year = +str.slice(0, 4);
+  const month = +str.slice(4, 6) - 1;
+  const day = +str.slice(6, 8);
+  const hour = +str.slice(8, 10);
+  const min = +str.slice(10, 12);
+  const sec = +str.slice(12, 14);
+  return new Date(year, month, day, hour, min, sec);
+}
 
 /**
  * Service xử lý thanh toán qua VNPay
@@ -78,12 +96,11 @@ const vnpayService = {
    */
   verifySignature(params) {
     try {
-      // Clone params để không làm thay đổi object gốc
       const paramsCopy = { ...params };
       const vnp_SecureHash = paramsCopy.vnp_SecureHash;
       delete paramsCopy.vnp_SecureHash;
-      delete paramsCopy.vnp_SecureHashType; // Loại bỏ luôn nếu có
-
+      delete paramsCopy.vnp_SecureHashType;
+  
       // Sắp xếp tham số theo alphabet và loại bỏ các tham số rỗng
       const sortedParams = {};
       Object.keys(paramsCopy)
@@ -93,14 +110,19 @@ const vnpayService = {
           sortedParams[key] = paramsCopy[key].toString();
         });
       const signData = require('qs').stringify(sortedParams, { encode: false });
-      const hashSecret = require('../config/vnpay').hashSecret;
+  
+      // Luôn dùng sha512 theo tài liệu VNPay
+      const hashSecret = vnpayConfig.hashSecret;
       const hmac = require('crypto').createHmac('sha512', hashSecret);
       const calculatedSignature = hmac.update(Buffer.from(signData, 'utf-8')).digest('hex');
+  
       // Log chi tiết để debug
       console.log('--- VNPay Signature Debug ---');
       console.log('Params for signature:', sortedParams);
       console.log('SignData:', signData);
-      console.log('HashSecret:', hashSecret);
+      console.log('HashSecret (string):', JSON.stringify(hashSecret));
+      console.log('HashSecret (hex):', Buffer.from(hashSecret, 'utf-8').toString('hex'));
+      console.log('OrderInfo:', sortedParams.vnp_OrderInfo);
       console.log('Calculated signature:', calculatedSignature);
       console.log('VNPay signature:', vnp_SecureHash);
       console.log('-----------------------------');
@@ -135,7 +157,7 @@ const vnpayService = {
       }
 
       // Tạo transaction ID
-      const transactionId = crypto.randomBytes(16).toString('hex');
+      const transactionId = `${Date.now()}${Math.floor(Math.random() * 10000)}`;
       
       // Tạo return URL
       const returnUrl = options.returnUrl || vnpayConfig.returnUrl;
@@ -165,47 +187,53 @@ const vnpayService = {
       }], { session });
 
       // Sử dụng thư viện vnpay để tạo URL thanh toán
+      let paymentUrl;
       try {
         const vnpAmount = calculateGatewayAmount(payment[0].totalAmount, 'vnpay');
         const now = new Date();
-        const vnpCreateDate = dateFormat(now, 'yyyyMMddHHmmss');
-        const vnpExpireDate = dateFormat(new Date(now.getTime() + 15 * 60 * 1000), 'yyyyMMddHHmmss');
-        // Đảm bảo luôn có orderInfo
-        const orderInfo = payment[0].paymentDetails.orderInfo || `Thanh toán gói ${packageInfo.name}`;
+        const vnpCreateDate = dateFormat(now, 'yyyyMMddHHmmss').toString();
+        const vnpExpireDate = dateFormat(new Date(now.getTime() + 15 * 60 * 1000), 'yyyyMMddHHmmss').toString();
+        // Đảm bảo luôn có orderInfo, chỉ dùng chữ cái, số, gạch dưới
+        let orderInfo = payment[0].paymentDetails.orderInfo || `Thanh toan goi ${packageInfo.name}`;
+        orderInfo = orderInfo.replace(/[^a-zA-Z0-9]/g, '_');
         // Đảm bảo IP là IPv4
         let ipAddr = payment[0].paymentDetails.ipAddress;
         if (!ipAddr || ipAddr === '::1' || ipAddr === '::ffff:127.0.0.1') ipAddr = '127.0.0.1';
 
-        const paymentUrl = await retryWithDelay(async () => {
-          return await vnpayInstance.buildPaymentUrl({
-            vnp_Amount: vnpAmount,
-            vnp_IpAddr: ipAddr,
-            vnp_TxnRef: payment[0].transactionId,
-            vnp_OrderInfo: orderInfo,
-            vnp_ReturnUrl: payment[0].paymentDetails.returnUrl,
-            vnp_BankCode: payment[0].paymentDetails.bankCode || undefined,
-            vnp_ExpireDate: vnpExpireDate,
-            vnp_CreateDate: vnpCreateDate,
-            vnp_OrderType: 'billpayment' // Sử dụng loại hợp lệ
-          });
-        });
-
-        await session.commitTransaction();
-        
-        return {
-          success: true,
-          paymentId: payment[0]._id,
-          paymentUrl: paymentUrl,
-          transactionId: transactionId,
-          requiresPayment: true
+        // Log toàn bộ config và params trước khi gọi buildPaymentUrl
+        console.log('vnpayConfig:', vnpayConfig);
+        const buildParams = {
+          vnp_Amount: vnpAmount,
+          vnp_IpAddr: ipAddr,
+          vnp_TxnRef: payment[0].transactionId,
+          vnp_OrderInfo: orderInfo,
+          vnp_ReturnUrl: payment[0].paymentDetails.returnUrl,
+          vnp_BankCode: payment[0].paymentDetails.bankCode || undefined,
+          vnp_ExpireDate: vnpExpireDate,
+          vnp_CreateDate: vnpCreateDate,
+          vnp_OrderType: 'other',
+          vnp_Locale: 'vn',
+          vnp_Version: '2.1.0'
         };
+        console.log('buildParams:', buildParams);
+        paymentUrl = vnpayInstance.buildPaymentUrl(buildParams);
+        console.log('Payment URL:', paymentUrl);
+        if (!paymentUrl) throw new Error('buildPaymentUrl trả về undefined');
       } catch (error) {
-        console.error('Error creating VNPay payment URL:', error);
-        await session.abortTransaction();
-        throw new Error(`Lỗi tạo URL thanh toán VNPay: ${error.message}`);
+        console.error('VNPay buildPaymentUrl error:', error);
+        throw new Error(`Lỗi tạo URL thanh toán VNPay: ${error?.message || JSON.stringify(error) || 'Unknown error'}`);
       }
+
+      await session.commitTransaction();
+      return {
+        success: true,
+        paymentId: payment[0]._id,
+        paymentUrl: paymentUrl,
+        transactionId: transactionId,
+        requiresPayment: true
+      };
     } catch (error) {
-      await session.abortTransaction();
+      await session.abortTransaction(); // Chỉ gọi ở đây
       console.error('Error in createPayment:', error);
       throw error;
     } finally {
@@ -263,7 +291,7 @@ const vnpayService = {
         bankCode: vnpParams.vnp_BankCode,
         bankTranNo: vnpParams.vnp_BankTranNo,
         cardType: vnpParams.vnp_CardType,
-        payDate: vnpParams.vnp_PayDate ? dateFormat(vnpParams.vnp_PayDate, 'yyyy-MM-dd HH:mm:ss') : new Date().toISOString(),
+        payDate: vnpParams.vnp_PayDate ? dateFormat(parseVnpDate(vnpParams.vnp_PayDate), 'yyyy-MM-dd HH:mm:ss') : new Date().toISOString(),
         gatewayResponse: vnpParams
       };
 

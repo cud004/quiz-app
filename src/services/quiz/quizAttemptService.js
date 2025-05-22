@@ -143,65 +143,69 @@ const quizAttemptService = {
   },
   
   // Gửi câu trả lời
+  // Gửi câu trả lời
   async submitAnswer(attemptId, userId, questionId, answer) {
     // console.log('[QuizAttemptService][submitAnswer] attemptId:', attemptId, 'userId:', userId, 'questionId:', questionId, 'answer:', answer);
     const session = await mongoose.startSession();
     session.startTransaction();
-    
     try {
-      const quizAttempt = await QuizAttempt.findById(attemptId).session(session);
-      
+      const quizAttempt = await QuizAttempt.findById(attemptId).session(
+        session
+      );
+
       if (!quizAttempt) {
-        throw new Error('Quiz attempt not found');
+        throw new Error("Quiz attempt not found");
       }
-      
+
       // Kiểm tra xem người dùng có quyền truy cập không
       if (quizAttempt.user.toString() !== userId.toString()) {
-        throw new Error('You do not have permission to access this attempt');
+        throw new Error("You do not have permission to access this attempt");
       }
-      
+
       // Kiểm tra trạng thái làm bài
-      if (quizAttempt.status !== 'in_progress') {
-        throw new Error('This quiz attempt is no longer in progress');
+      if (quizAttempt.status !== "in_progress") {
+        throw new Error("This quiz attempt is no longer in progress");
       }
-      
+
       // Kiểm tra thời gian làm bài
       const isTimeExpired = await this.checkTimeLimit(quizAttempt);
       if (isTimeExpired) {
         // Hủy transaction
         await session.abortTransaction();
         session.endSession();
-        
+
         // Tự động hoàn thành bài làm
         await this.completeQuizAttempt(attemptId, userId, true);
-        throw new Error('Time limit has expired. Your quiz has been automatically completed.');
+        throw new Error(
+          "Time limit has expired. Your quiz has been automatically completed."
+        );
       }
-      
+
       // Kiểm tra câu hỏi
       const question = await Question.findById(questionId).session(session);
       if (!question) {
-        throw new Error('Question not found');
+        throw new Error("Question not found");
       }
-      
+
       // Lấy thông tin đề thi để kiểm tra câu hỏi có thuộc đề thi không
       const exam = await Exam.findById(quizAttempt.exam).session(session);
-      
+
       // Kiểm tra câu hỏi có thuộc đề thi không
-      const isQuestionInExam = exam.questions.some(q => 
-        q.question.toString() === questionId.toString()
+      const isQuestionInExam = exam.questions.some(
+        (q) => q.question.toString() === questionId.toString()
       );
-      
+
       if (!isQuestionInExam) {
-        throw new Error('This question does not belong to the current exam');
+        throw new Error("This question does not belong to the current exam");
       }
-      
+
       // Kiểm tra câu trả lời đã tồn tại chưa
       const existingAnswerIndex = quizAttempt.answers.findIndex(
-        a => a.question.toString() === questionId.toString()
+        (a) => a.question.toString() === questionId.toString()
       );
-      
+
       const isCorrect = answer === question.correctAnswer;
-      
+
       if (existingAnswerIndex >= 0) {
         // Cập nhật câu trả lời đã tồn tại
         quizAttempt.answers[existingAnswerIndex].selectedAnswer = answer;
@@ -212,21 +216,34 @@ const quizAttemptService = {
           question: questionId,
           selectedAnswer: answer,
           isCorrect: isCorrect,
-          timeSpent: 0 // Sẽ tính sau
+          timeSpent: 0, // Sẽ tính sau
         });
       }
-      
+      // const question = await Question.findById(questionId).select('tags');
+      if (question && Array.isArray(question.tags)) {
+        for (const tagId of question.tags) {
+          await UserAnswer.create({
+user: userId,
+            question: questionId,
+            tag: tagId,
+            isCorrect,
+            attemptTime: new Date(),
+            quizAttempt: attemptId,
+          });
+        }
+      }
+
       await quizAttempt.save({ session });
-      
+
       await session.commitTransaction();
       session.endSession();
-      
+
       // Không trả về thông tin isCorrect, chỉ xác nhận đã nhận được câu trả lời
       // console.log('[QuizAttemptService][submitAnswer] result:', { questionId, answered: true });
       return {
         success: true,
         questionId: questionId,
-        answered: true
+        answered: true,
       };
     } catch (error) {
       await session.abortTransaction();

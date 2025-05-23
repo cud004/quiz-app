@@ -204,6 +204,15 @@ const paymentService = {
 
           // Gửi email thông báo
           try {
+            console.log('Preparing to send success email:', {
+              to: payment.user.email,
+              name: payment.user.name,
+              packageName: payment.subscription.package.name,
+              amount: payment.totalAmount,
+              transactionId: payment.transactionId,
+              paymentMethod: payment.paymentMethod
+            });
+
             await AuthService.sendEmail({
               to: payment.user.email,
               subject: 'Thanh toán thành công',
@@ -212,13 +221,20 @@ const paymentService = {
                 name: payment.user.name,
                 packageName: payment.subscription.package.name,
                 amount: payment.totalAmount.toLocaleString('vi-VN') + ' VNĐ',
-                transactionId: payment.transactionId
+                transactionId: payment.transactionId,
+                paymentMethod: payment.paymentMethod === 'vnpay' ? 'VNPay' : 'MoMo',
+                date: new Date().toLocaleString('vi-VN')
               }
             });
-            console.log('Success notification email sent');
+            console.log('Success notification email sent successfully');
           } catch (emailError) {
-            console.error('Error sending success notification email:', emailError);
-            // Don't throw error here, continue with the transaction
+            console.error('Error sending success notification email:', {
+              error: emailError.message,
+              stack: emailError.stack,
+              paymentId: payment._id,
+              userId: payment.user._id
+            });
+            // Không throw error để không ảnh hưởng đến luồng thanh toán
           }
 
           await session.commitTransaction();

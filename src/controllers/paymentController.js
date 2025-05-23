@@ -258,24 +258,85 @@ const paymentController = {
         console.error('[PaymentController] Invalid VNPay callback data:', error);
         // Redirect về FE với trạng thái lỗi
         const redirectUrl = `http://localhost:5173/payment-result?status=error&message=${encodeURIComponent('Dữ liệu callback không hợp lệ')}`;
-        return res.redirect(redirectUrl);
+        try {
+          return res.redirect(redirectUrl);
+        } catch (err) {
+          console.error('Redirect error:', err);
+          return res.status(200).json({ message: 'Payment processed, but redirect failed.' });
+        }
       }
 
       // Xử lý callback: xác thực, cập nhật DB
       const result = await vnpayService.verifyReturnUrl(req.query);
       console.log('[PaymentController] VNPay callback result:', result);
 
+      // Nếu thanh toán thành công, gửi email hóa đơn
+      if (result.success && result.payment) {
+        try {
+          console.log('[PaymentController] Preparing to send success email:', {
+            to: result.payment.user.email,
+            name: result.payment.user.name,
+            packageName: result.payment.subscription.package.name,
+            amount: result.payment.totalAmount,
+            transactionId: result.payment.transactionId
+          });
+
+          await AuthService.sendEmail({
+            email: result.payment.user.email,
+            subject: 'Thanh toán thành công',
+            template: 'payment-success',
+            context: {
+              name: result.payment.user.name,
+              packageName: result.payment.subscription.package.name,
+              amount: result.payment.totalAmount.toLocaleString('vi-VN') + ' VNĐ',
+              transactionId: result.payment.transactionId,
+              paymentMethod: 'VNPay',
+              date: new Date().toLocaleString('vi-VN')
+            }
+          });
+          console.log('[PaymentController] Success notification email sent successfully');
+        } catch (emailError) {
+          console.error('[PaymentController] Error sending success notification email:', {
+            error: emailError.message,
+            stack: emailError.stack,
+            paymentId: result.payment._id,
+            userId: result.payment.user._id
+          });
+          // Không throw error để không ảnh hưởng đến luồng thanh toán
+        }
+      }
+
+      // Lấy returnUrl từ paymentDetails nếu có, fallback về FE mặc định
+      let baseRedirectUrl = 'http://localhost:5173/payment-result';
+      if (result && result.payment && result.payment.paymentDetails && result.payment.paymentDetails.returnUrl) {
+        // Nếu returnUrl là callback BE thì thay bằng FE
+        if (result.payment.paymentDetails.returnUrl.includes('/callback/')) {
+          baseRedirectUrl = 'http://localhost:5173/payment-result';
+        } else {
+          baseRedirectUrl = result.payment.paymentDetails.returnUrl;
+        }
+      }
       // Redirect về FE với trạng thái và transactionId
       const status = result.success ? 'success' : 'fail';
       const transactionId = req.query.vnp_TxnRef || '';
       const message = encodeURIComponent(result.message || '');
-      const redirectUrl = `http://localhost:3000/payment-result?status=${status}&transactionId=${transactionId}&message=${message}`;
-      return res.redirect(redirectUrl);
+      const redirectUrl = `${baseRedirectUrl}?status=${status}&transactionId=${transactionId}&message=${message}`;
+      try {
+        return res.redirect(redirectUrl);
+      } catch (err) {
+        console.error('Redirect error:', err);
+        return res.status(200).json({ message: 'Payment processed, but redirect failed.' });
+      }
     } catch (error) {
       console.error('[PaymentController] Error handling VNPay callback:', error);
       // Redirect về FE với trạng thái lỗi
-      const redirectUrl = `http://localhost:3000/payment-result?status=error&message=${encodeURIComponent(error.message)}`;
-      return res.redirect(redirectUrl);
+      const redirectUrl = `http://localhost:5173/payment-result?status=error&message=${encodeURIComponent(error.message)}`;
+      try {
+        return res.redirect(redirectUrl);
+      } catch (err) {
+        console.error('Redirect error:', err);
+        return res.status(200).json({ message: 'Payment processed, but redirect failed.' });
+      }
     }
   },
 
@@ -322,16 +383,26 @@ const paymentController = {
       const result = await momoService.handleMomoReturn(req.query);
       console.log('[PaymentController] MoMo callback result:', result);
 
-      // Redirect về trang kết quả
-      const redirectUrl = result.success
-        ? `${paymentConfig.defaultReturnUrl}?status=success&transactionId=${result.payment.transactionId}`
-        : `${paymentConfig.defaultReturnUrl}?status=failed&transactionId=${result.payment.transactionId}&message=${encodeURIComponent(result.message || 'Thanh toán thất bại')}`;
-
-      console.log('[PaymentController] Redirecting to:', redirectUrl);
-      res.redirect(redirectUrl);
+      // Redirect về FE với trạng thái và transactionId
+      const status = result.success ? 'success' : 'fail';
+      const transactionId = req.query.orderId || '';
+      const message = encodeURIComponent(result.message || '');
+      const redirectUrl = `http://localhost:5173/payment-result?status=${status}&transactionId=${transactionId}&message=${message}`;
+      try {
+        return res.redirect(redirectUrl);
+      } catch (err) {
+        console.error('Redirect error:', err);
+        return res.status(200).json({ message: 'Payment processed, but redirect failed.' });
+      }
     } catch (error) {
       console.error('[PaymentController] Error handling MoMo callback:', error);
-      res.redirect(`${paymentConfig.defaultReturnUrl}?status=error&message=${encodeURIComponent(error.message)}`);
+      const redirectUrl = `http://localhost:5173/payment-result?status=error&message=${encodeURIComponent(error.message)}`;
+      try {
+        return res.redirect(redirectUrl);
+      } catch (err) {
+        console.error('Redirect error:', err);
+        return res.status(200).json({ message: 'Payment processed, but redirect failed.' });
+      }
     }
   },
 

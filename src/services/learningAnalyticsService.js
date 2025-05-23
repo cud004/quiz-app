@@ -25,27 +25,6 @@ const learningAnalyticsService = {
     }
   },
 
-  /**
-   * Lấy đề xuất học tập
-   */
-  async getRecommendations(userId, options) {
-    const { type = 'comprehensive', limit = 6, topicId } = options;
-    
-    switch(type) {
-      case 'performance':
-        return this.getPerformanceBasedRecommendations(userId, limit);
-      case 'topic':
-        if (!topicId) throw new Error('Topic ID is required');
-        return this.getTopicBasedRecommendations(userId, topicId, limit);
-      case 'popular':
-        return this.getPopularRecommendations(limit);
-      case 'comprehensive':
-        return this.getComprehensiveRecommendations(userId);
-      default:
-        throw new Error('Invalid recommendation type');
-    }
-  },
-
   // Các phương thức private
   async getOverallStats(userId) {
     // Lấy tất cả lần làm bài đã hoàn thành
@@ -59,6 +38,7 @@ const learningAnalyticsService = {
       const totalTopics = await Topic.countDocuments();
       return {
         totalAttempts: 0,
+        totalExams: 0, // Số đề kiểm tra đã làm (unique)
         averageScore: 0,
         totalQuestions: 0,
         correctAnswers: 0,
@@ -83,6 +63,7 @@ const learningAnalyticsService = {
     let countAbove80 = 0;
     let countBelow50 = 0;
     const topicSet = new Set();
+    const examSet = new Set();
     
     // Lấy 5 lần làm bài gần nhất
     const recentAttempts = [...completedAttempts]
@@ -106,6 +87,7 @@ const learningAnalyticsService = {
       if (attempt.score < 50) countBelow50++;
       if (attempt.score > bestScore) bestScore = attempt.score;
       if (attempt.exam && attempt.exam.topic) topicSet.add(attempt.exam.topic.toString());
+      if (attempt.exam) examSet.add(attempt.exam._id.toString());
     });
     
     // Tính tổng số câu hỏi từ số câu đúng và sai
@@ -124,6 +106,7 @@ const learningAnalyticsService = {
     
     return {
       totalAttempts: completedAttempts.length,
+      totalExams: examSet.size, // Số đề kiểm tra đã làm (unique)
       averageScore,
       totalQuestions,
       correctAnswers: totalCorrect,
@@ -174,22 +157,35 @@ const learningAnalyticsService = {
             totalQuestions: 0,
             correctAnswers: 0,
             accuracy: 0,
-            totalAttempts: 0
+            totalAttempts: 0,
+            scores: [],
+            maxScore: 0
           });
         }
         
         // Cập nhật thống kê
         const stats = topicStats.get(topicId);
+        const score = attempt.score || 0;
+        stats.scores.push(score);
+        if (score > stats.maxScore) stats.maxScore = score;
         stats.totalQuestions += attempt.totalQuestions || 0;
         stats.correctAnswers += attempt.correctAnswers || 0;
         stats.totalAttempts += 1;
-        stats.accuracy = (stats.correctAnswers / stats.totalQuestions) * 100;
+        stats.accuracy = (stats.totalQuestions > 0) ? (stats.correctAnswers / stats.totalQuestions) * 100 : 0;
       }
     });
     
-    // Chuyển map thành array và sắp xếp theo accuracy
-    return Array.from(topicStats.values())
-      .sort((a, b) => a.accuracy - b.accuracy);
+    // Chuyển map thành array và bổ sung trường mới
+    return Array.from(topicStats.values()).map(stat => ({
+      topicId: stat.topicId,
+      name: stat.name,
+      totalQuestions: stat.totalQuestions,
+      correctAnswers: stat.correctAnswers,
+      accuracy: stat.accuracy,
+      totalAttempts: stat.totalAttempts,
+      averageScore: stat.scores.length > 0 ? (stat.scores.reduce((a, b) => a + b, 0) / stat.scores.length) : 0,
+      maxScore: stat.maxScore
+    }));
   },
 
   async getLearningProgress(userId, days) {
@@ -223,9 +219,11 @@ const learningAnalyticsService = {
       dailyStats.set(dateStr, {
         date: dateStr,
         attempts: 0,
-        averageScore: 0,
+        averageScore: 0, // Cách cũ: số câu đúng / tổng số câu hỏi
         totalQuestions: 0,
-        correctAnswers: 0
+        correctAnswers: 0,
+        scores: [], // Dùng để tính averageScoreByScore
+        averageScoreByScore: 0 // Trung bình điểm số các lần làm bài trong ngày
       });
     }
     
@@ -238,8 +236,15 @@ const learningAnalyticsService = {
         stats.attempts += 1;
         stats.totalQuestions += attempt.totalQuestions || 0;
         stats.correctAnswers += attempt.correctAnswers || 0;
-        stats.averageScore = (stats.correctAnswers / stats.totalQuestions) * 100;
+        stats.scores.push(attempt.score || 0);
       }
+    });
+    
+    // Tính lại averageScore (cách cũ) và averageScoreByScore (cách mới)
+    dailyStats.forEach(stats => {
+      stats.averageScore = stats.totalQuestions > 0 ? (stats.correctAnswers / stats.totalQuestions) * 100 : 0;
+      stats.averageScoreByScore = stats.scores.length > 0 ? (stats.scores.reduce((a, b) => a + b, 0) / stats.scores.length) : 0;
+      delete stats.scores;
     });
     
     return {
@@ -265,171 +270,6 @@ const learningAnalyticsService = {
       topics: topicStats,
       progress: learningProgress
     };
-  },
-
-  async getPerformanceBasedRecommendations(userId, limit = 6) {
-    const topicStats = await this.getTopicStats(userId);
-    
-    // Nếu không có thống kê
-    if (!topicStats.length) {
-      return this.getPopularRecommendations(limit);
-    }
-    
-    // Lấy các topic có hiệu suất thấp
-    const lowPerformanceTopics = topicStats
-      .filter(topic => topic.accuracy < 70)
-      .slice(0, 3);
-    
-    // Nếu không có topic nào có hiệu suất thấp, lấy tất cả
-    const focusTopics = lowPerformanceTopics.length > 0
-      ? lowPerformanceTopics
-      : topicStats;
-    
-    // Lấy các bài kiểm tra liên quan
-    const exams = await Exam.find({
-      topic: { $in: focusTopics.map(t => t.topicId) },
-      isActive: true
-    })
-    .populate('topic', 'name')
-    .limit(limit);
-    
-    return exams.map(exam => ({
-      examId: exam._id,
-      title: exam.title,
-      topic: exam.topic ? {
-        id: exam.topic._id,
-        name: exam.topic.name
-      } : null,
-      difficulty: exam.difficulty,
-      questionCount: exam.questionCount,
-      timeLimit: exam.timeLimit,
-      score: exam.score
-    }));
-  },
-
-  async getTopicBasedRecommendations(userId, topicId, limit = 3) {
-    const topicStats = await this.getTopicStats(userId);
-    const performance = topicStats.find(p => p.topicId === topicId);
-    
-    // Lấy các bài kiểm tra của topic
-    const exams = await Exam.find({
-      topic: topicId,
-      isActive: true
-    })
-    .populate('topic', 'name')
-    .limit(limit);
-    
-    return exams.map(exam => ({
-      examId: exam._id,
-      title: exam.title,
-      topic: exam.topic ? {
-        id: exam.topic._id,
-        name: exam.topic.name
-      } : null,
-      difficulty: exam.difficulty,
-      questionCount: exam.questionCount,
-      timeLimit: exam.timeLimit,
-      score: exam.score,
-      performance: performance ? {
-        accuracy: performance.accuracy,
-        totalAttempts: performance.totalAttempts
-      } : null
-    }));
-  },
-
-  async getPopularRecommendations(limit = 6) {
-    const exams = await Exam.find({
-      isActive: true
-    })
-    .populate('topic', 'name')
-    .sort('-attemptCount')
-    .limit(limit);
-    
-    return exams.map(exam => ({
-      examId: exam._id,
-      title: exam.title,
-      topic: exam.topic ? {
-        id: exam.topic._id,
-        name: exam.topic.name
-      } : null,
-      difficulty: exam.difficulty,
-      questionCount: exam.questionCount,
-      timeLimit: exam.timeLimit,
-      score: exam.score,
-      attemptCount: exam.attemptCount
-    }));
-  },
-
-  async getComprehensiveRecommendations(userId) {
-    const topicStats = await this.getTopicStats(userId);
-    
-    // Nếu không có thống kê
-    if (!topicStats.length) {
-      return this.getPopularRecommendations(6);
-    }
-    
-    // Lấy các topic cần cải thiện
-    const topicsToImprove = topicStats
-      .filter(topic => topic.accuracy < 70)
-      .slice(0, 3);
-    
-    const recommendations = [];
-    
-    // Thêm đề xuất cho các topic cần cải thiện
-    for (const topic of topicsToImprove) {
-      const topicExams = await Exam.find({
-        topic: topic.topicId,
-        isActive: true
-      })
-      .populate('topic', 'name')
-      .limit(2);
-      
-      recommendations.push(...topicExams.map(exam => ({
-        examId: exam._id,
-        title: exam.title,
-        topic: exam.topic ? {
-          id: exam.topic._id,
-          name: exam.topic.name
-        } : null,
-        difficulty: exam.difficulty,
-        questionCount: exam.questionCount,
-        timeLimit: exam.timeLimit,
-        score: exam.score,
-        reason: 'Cần cải thiện'
-      })));
-    }
-    
-    // Nếu chưa đủ 6 đề xuất, thêm các topic khác
-    if (recommendations.length < 6 && topicStats.length > 0) {
-      const otherTopics = topicStats
-        .filter(topic => topic.accuracy >= 70)
-        .slice(0, 3);
-      
-      for (const topic of otherTopics) {
-        const topicExams = await Exam.find({
-          topic: topic.topicId,
-          isActive: true
-        })
-        .populate('topic', 'name')
-        .limit(2);
-        
-        recommendations.push(...topicExams.map(exam => ({
-          examId: exam._id,
-          title: exam.title,
-          topic: exam.topic ? {
-            id: exam.topic._id,
-            name: exam.topic.name
-          } : null,
-          difficulty: exam.difficulty,
-          questionCount: exam.questionCount,
-          timeLimit: exam.timeLimit,
-          score: exam.score,
-          reason: 'Duy trì'
-        })));
-      }
-    }
-    
-    return recommendations.slice(0, 6);
   }
 };
 

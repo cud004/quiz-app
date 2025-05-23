@@ -18,27 +18,6 @@ const learningAnalyticsController = {
     } catch (error) {
       return ApiResponse.error(res, error.message);
     }
-  },
-
-  /**
-   * Lấy đề xuất học tập
-   */
-  getRecommendations: async (req, res) => {
-    try {
-      const { type, limit, topicId, tagId } = req.query;
-      const recommendations = await learningAnalyticsService.getRecommendations(
-        req.user._id, 
-        { type, limit, topicId, tagId }
-      );
-      
-      return ApiResponse.success(
-        res,
-        recommendations,
-        'Đề xuất học tập được lấy thành công'
-      );
-    } catch (error) {
-      return ApiResponse.error(res, error.message);
-    }
   }
 };
 

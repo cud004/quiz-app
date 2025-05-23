@@ -1,6 +1,6 @@
 const analyticsService = require('../services/analyticsService');
 const ApiResponse = require('../utils/apiResponse');
-
+const QuizAttempt = require("../models/QuizAttempt");
 const analyticsController = {
   /**
    * Lấy dữ liệu analytics gần nhất theo kỳ hạn
@@ -139,7 +139,48 @@ const analyticsController = {
     } catch (error) {
       return ApiResponse.error(res, error.message);
     }
-  }
+  },
+  /* Thống kê số liệu cho một bài kiểm tra (exam) */
+  getExamStats: async (req, res) => {
+    try {
+      console.log("haha");
+      const { examId } = req.params;
+      // Lấy tất cả các lần làm bài của exam này
+      const attempts = await QuizAttempt.find({ exam: examId });
+
+      const totalAttempts = attempts.length;
+      const completedAttempts = attempts.filter(
+        (a) => a.status === "completed"
+      );
+      const completedCount = completedAttempts.length;
+      console.log("ha", completedCount);
+      // Tính điểm trung bình (chỉ tính các lần đã hoàn thành)
+      let averageScore = 0;
+      if (completedCount > 0) {
+        const totalScore = completedAttempts.reduce(
+          (sum, a) => sum + (a.score || 0),
+          0
+        );
+        averageScore = totalScore / completedCount;
+      }
+
+      // Tỷ lệ hoàn thành
+      const completionRate =
+        totalAttempts > 0 ? (completedCount / totalAttempts) * 100 : 0;
+
+      return res.json({
+        success: true,
+        data: {
+          examId,
+          totalAttempts,
+          averageScore: Math.round(averageScore * 100) / 100,
+          completionRate: Math.round(completionRate * 100) / 100, // %
+        },
+      });
+    } catch (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  },
 };
 
 module.exports = analyticsController; 

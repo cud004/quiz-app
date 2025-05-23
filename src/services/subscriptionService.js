@@ -435,6 +435,7 @@ const subscriptionService = {
         status: 'active',
         startDate: new Date(),
         endDate: null, // Gói Free không có ngày hết hạn
+        nextPaymentDate: null, // Thêm dòng này
         autoRenew: false
       };
       

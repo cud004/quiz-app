@@ -182,6 +182,73 @@ const suggestionService = {
       };
     });
   },
+  async suggestExamsByWeakTopics(userId, minScore = 60) {
+    // 1. Lấy tất cả các lần làm bài đã hoàn thành của user
+    const attempts = await QuizAttempt.find({
+      user: userId,
+      status: "completed",
+    }).populate({
+      path: "exam",
+      select: "topic title description accessLevel",
+      populate: { path: "topic", select: "name" },
+    });
+
+    // Gom nhóm theo topic
+    const topicStats = {};
+    attempts.forEach((a) => {
+      const topicObj = a.exam?.topic;
+      const topicId = topicObj?._id?.toString();
+      if (!topicId) return;
+      if (!topicStats[topicId]) {
+        topicStats[topicId] = { totalScore: 0, count: 0, topic: topicObj };
+      }
+      topicStats[topicId].totalScore += a.score || 0;
+      topicStats[topicId].count += 1;
+    });
+
+    // 3. Lấy danh sách topic user yếu (điểm TB < minScore)
+    const weakTopicIds = Object.entries(topicStats)
+      .filter(
+        ([_, stat]) => stat.count > 0 && stat.totalScore / stat.count < minScore
+      )
+      .map(([topicId]) => topicId);
+
+    if (weakTopicIds.length === 0) return [];
+
+    const exams = await Exam.find({ topic: { $in: weakTopicIds } }).populate(
+      "topic",
+      "name"
+    );
+
+    // 5. Đánh dấu các exam user đã làm và điểm số
+    const examScores = {};
+    attempts.forEach((a) => {
+      examScores[a.exam._id.toString()] = a.score || 0;
+    });
+
+    // 6. Chuẩn bị danh sách đề xuất
+    const suggestions = exams.map((exam) => ({
+      examId: exam._id,
+      title: exam.title,
+      description: exam.description,
+      topicId: exam.topic._id,
+      topicName: exam.topic.name,
+      userScore: examScores[exam._id.toString()] ?? null,
+      accessLevel: exam.accessLevel,
+      suggestion:
+        "Bạn nên luyện tập đề này để cải thiện kiến thức ở chủ đề này.",
+    }));
+
+    // Có thể sắp xếp ưu tiên đề user chưa làm hoặc điểm thấp
+    suggestions.sort((a, b) => {
+      if (a.userScore === null && b.userScore !== null) return -1;
+      if (a.userScore !== null && b.userScore === null) return 1;
+      if (a.userScore !== null && b.userScore !== null)
+        return a.userScore - b.userScore;
+      return 0;
+    });
+    return suggestions;
+  },
 };
 
 module.exports = { suggestionService };

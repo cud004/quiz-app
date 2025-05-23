@@ -518,23 +518,15 @@ const analyticsService = {
    */
   async collectTopicsData(startDate, endDate) {
     // Tổng số chủ đề
-    const total = await Topic.countDocuments({
-      'deleted.isDeleted': false
-    });
+    const total = await Topic.countDocuments({});
     
     // Chủ đề mới trong khoảng thời gian
     const newTopics = await Topic.countDocuments({
-      createdAt: { $gte: startDate, $lte: endDate },
-      'deleted.isDeleted': false
+      createdAt: { $gte: startDate, $lte: endDate }
     });
     
     // Chủ đề theo trạng thái
     const topicsByStatus = await Topic.aggregate([
-      {
-        $match: {
-          'deleted.isDeleted': false
-        }
-      },
       {
         $group: {
           _id: '$isActive',
@@ -556,13 +548,8 @@ const analyticsService = {
       }
     });
     
-    // Chủ đề theo độ khó
+    // Chủ đề theo độ khó (enum: beginner, intermediate, advanced)
     const topicsByDifficulty = await Topic.aggregate([
-      {
-        $match: {
-          'deleted.isDeleted': false
-        }
-      },
       {
         $group: {
           _id: '$difficulty',
@@ -572,9 +559,9 @@ const analyticsService = {
     ]);
     
     const byDifficulty = {
-      easy: 0,
-      medium: 0,
-      hard: 0
+      beginner: 0,
+      intermediate: 0,
+      advanced: 0
     };
     
     topicsByDifficulty.forEach(item => {
@@ -584,12 +571,24 @@ const analyticsService = {
     });
     
     // Chủ đề phổ biến
-    const popularTopics = await Topic.find({
-      'deleted.isDeleted': false
-    })
-    .sort('-questionCount')
-    .limit(5)
-    .select('name questionCount');
+    const popularTopics = await Topic.find({})
+      .sort('-questionCount')
+      .limit(5)
+      .select('name questionCount _id');
+    
+    // Lấy số lượng đề thi theo từng topic
+    const examsByTopic = await Exam.aggregate([
+      {
+        $group: {
+          _id: '$topic',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+    const examsCountMap = {};
+    examsByTopic.forEach(item => {
+      if (item._id) examsCountMap[item._id.toString()] = item.count;
+    });
     
     return {
       total,
@@ -598,7 +597,8 @@ const analyticsService = {
       byDifficulty,
       popular: popularTopics.map(topic => ({
         name: topic.name,
-        questionCount: topic.questionCount
+        questionCount: topic.questionCount,
+        examsCount: examsCountMap[topic._id.toString()] || 0
       }))
     };
   },
@@ -684,16 +684,14 @@ const analyticsService = {
       questionsData,
       quizAttemptsData,
       revenueData,
-      topicsData,
-      systemPerformanceData
+      topicsData
     ] = await Promise.all([
       this.collectUsersData(startDate, now),
       this.collectExamsData(startDate, now),
       this.collectQuestionsData(startDate, now),
       this.collectQuizAttemptsData(startDate, now),
       this.collectRevenueData(startDate, now),
-      this.collectTopicsData(startDate, now),
-      this.collectSystemPerformanceData(startDate, now)
+      this.collectTopicsData(startDate, now)
     ]);
     
     return {
@@ -702,8 +700,7 @@ const analyticsService = {
       questions: questionsData,
       quizAttempts: quizAttemptsData,
       revenue: revenueData,
-      topics: topicsData,
-      systemPerformance: systemPerformanceData
+      topics: topicsData
     };
   },
   

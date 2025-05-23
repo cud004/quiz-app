@@ -88,6 +88,17 @@ const suggestionController = {
       return res.status(500).json({ success: false, message: error.message });
     }
   },
+  async suggestExamsByWeakTopics(req, res) {
+    try {
+      const userId = req.user._id;
+      // Có thể nhận minScore từ query nếu muốn tùy chỉnh
+      const minScore = Number(req.query.minScore) || 60;
+      const suggestions = await suggestionService.suggestExamsByWeakTopics(userId, minScore);
+      return res.json({ success: true, suggestions });
+    } catch (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  },
 };
 
 module.exports = {

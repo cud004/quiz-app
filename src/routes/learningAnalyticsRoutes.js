@@ -9,7 +9,4 @@ router.use(protect);
 // Lấy thống kê học tập
 router.get('/analytics', learningAnalyticsController.getAnalytics);
 
-// Lấy đề xuất học tập
-router.get('/recommendations', learningAnalyticsController.getRecommendations);
-
 module.exports = router; 

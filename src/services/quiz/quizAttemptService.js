@@ -5,6 +5,7 @@ const Exam = require('../../models/Exam');
 const Question = require('../../models/Question');
 const examService = require('../exam/examService');
 const UserTagStats = require('../../models/UserTagStats');
+const UserAnswer = require("../../models/UserAnswer");
 
 const quizAttemptService = {
   // Bắt đầu làm bài kiểm tra
@@ -223,8 +224,8 @@ const quizAttemptService = {
       if (question && Array.isArray(question.tags)) {
         for (const tagId of question.tags) {
           await UserAnswer.create({
-user: userId,
-            question: questionId,
+            user: userId,
+question: questionId,
             tag: tagId,
             isCorrect,
             attemptTime: new Date(),

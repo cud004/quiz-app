@@ -28,6 +28,8 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const suggestionRoutes = require('./routes/suggestionRoutes');
+const systemAnalyticsRoutes = require('./routes/systemAnalyticsRoutes');
+const practiceRoutes = require('./routes/practiceRoutes');
 // Các cổng thanh toán được quản lý qua API chính
 
 
@@ -101,10 +103,11 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/suggestions', suggestionRoutes);
 // Mount payment routes - tất cả các routes thanh toán đều được xử lý qua paymentRoutes
 app.use('/api/payments', paymentRoutes);
+app.use('/api/system-analytics', systemAnalyticsRoutes);
 
 // Thêm route mới
 app.use('/api/learning-analytics', learningAnalyticsRoutes);
-
+app.use('/api/practice', practiceRoutes);
 
 
 // Error handler

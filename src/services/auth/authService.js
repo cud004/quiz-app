@@ -12,30 +12,74 @@ class AuthService {
   }
 
   static async sendEmail(options) {
+    if (!options || !options.email) {
+      console.error('[AuthService] Invalid email options:', options);
+      throw new Error('Invalid email options');
+    }
+
+    console.log('[AuthService] sendEmail starting with options:', {
+      to: options.email,
+      subject: options.subject,
+      template: options.template,
+      hasHtml: !!options.html,
+      hasContext: !!options.context
+    });
+
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: process.env.SMTP_PORT,
+      secure: process.env.SMTP_PORT === '465',
       auth: {
         user: process.env.SMTP_EMAIL,
         pass: process.env.SMTP_PASSWORD
+      },
+      tls: {
+        rejectUnauthorized: false
       }
     });
 
     // Xử lý template email nếu có
     let htmlContent = options.html;
     if (options.template && options.context) {
+      console.log('[AuthService] Rendering email template:', {
+        template: options.template,
+        context: options.context
+      });
       htmlContent = this.renderEmailTemplate(options.template, options.context);
     }
 
     const message = {
-      from: `${process.env.FROM_NAME} <${process.env.FROM_EMAIL}>`,
-      to: options.to || options.email,
+      from: `${process.env.FROM_NAME || 'Quiz App'} <${process.env.FROM_EMAIL || process.env.SMTP_EMAIL}>`,
+      to: options.email,
       subject: options.subject,
       text: options.message,
       html: htmlContent
     };
 
-    await transporter.sendMail(message);
+    // Log context gửi email để debug
+    console.log('[AuthService] sendEmail called:', {
+      to: message.to,
+      subject: message.subject,
+      template: options.template,
+      context: options.context,
+      from: message.from
+    });
+
+    try {
+      await transporter.sendMail(message);
+      console.log('[AuthService] sendEmail sent successfully:', {
+        to: message.to,
+        subject: message.subject
+      });
+    } catch (error) {
+      console.error('[AuthService] Error sending email:', {
+        error: error.message,
+        stack: error.stack,
+        code: error.code,
+        command: error.command
+      });
+      throw error;
+    }
   }
 
   /**
@@ -61,104 +105,48 @@ class AuthService {
    * @returns {string} HTML content
    */
   static renderPaymentSuccessTemplate(context) {
-    const { name, packageName, amount, transactionId, paymentMethod } = context;
+    const { name, packageName, amount, transactionId, paymentMethod, date } = context;
     return `
     <!DOCTYPE html>
     <html lang="vi">
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Thanh toán thành công</title>
+      <title>Hóa đơn thanh toán thành công</title>
       <style>
-        body {
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          line-height: 1.6;
-          color: #333;
-          margin: 0;
-          padding: 0;
-        }
-        .container {
-          max-width: 600px;
-          margin: 0 auto;
-          padding: 20px;
-          background-color: #ffffff;
-        }
-        .header {
-          background-color: #4CAF50;
-          padding: 20px;
-          text-align: center;
-          color: white;
-          border-radius: 5px 5px 0 0;
-        }
-        .content {
-          padding: 20px;
-          border: 1px solid #e9e9e9;
-          border-radius: 0 0 5px 5px;
-          border-top: none;
-        }
-        .button {
-          display: inline-block;
-          background-color: #4CAF50;
-          color: #fff !important;
-          text-decoration: none;
-          padding: 12px 25px;
-          border-radius: 4px;
-          margin: 20px 0;
-          font-weight: bold;
-        }
-        .footer {
-          text-align: center;
-          margin-top: 20px;
-          font-size: 12px;
-          color: #999;
-        }
-        .details {
-          margin: 20px 0;
-          padding: 15px;
-          background-color: #f9f9f9;
-          border-radius: 8px;
-        }
-        .details p {
-          margin: 10px 0;
-        }
-        .success-icon {
-          font-size: 48px;
-          color: #4CAF50;
-          text-align: center;
-          margin: 20px 0;
-        }
-        @media only screen and (max-width: 600px) {
-          .container {
-            width: 100%;
-          }
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; }
+        .header { background-color: #4CAF50; padding: 20px; text-align: center; color: white; border-radius: 5px 5px 0 0; }
+        .content { padding: 20px; border: 1px solid #e9e9e9; border-radius: 0 0 5px 5px; border-top: none; }
+        .button { display: inline-block; background-color: #4CAF50; color: #fff !important; text-decoration: none; padding: 12px 25px; border-radius: 4px; margin: 20px 0; font-weight: bold; }
+        .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #999; }
+        .details { margin: 20px 0; padding: 15px; background-color: #f9f9f9; border-radius: 8px; }
+        .details p { margin: 10px 0; }
+        .success-icon { font-size: 48px; color: #4CAF50; text-align: center; margin: 20px 0; }
+        @media only screen and (max-width: 600px) { .container { width: 100%; } }
       </style>
     </head>
     <body>
       <div class="container">
         <div class="header">
-          <h1>Thanh toán thành công!</h1>
+          <h1>Hóa đơn thanh toán thành công</h1>
         </div>
         <div class="content">
           <div class="success-icon">✓</div>
-          <p>Xin chào ${name || 'Quý khách'},</p>
+          <p>Xin chào <b>${name || 'Quý khách'}</b>,</p>
           <p>Cảm ơn bạn đã thanh toán. Gói dịch vụ của bạn đã được kích hoạt thành công.</p>
-          
           <div class="details">
             <p><strong>Gói đăng ký:</strong> ${packageName || 'Không có thông tin'}</p>
             <p><strong>Số tiền:</strong> ${amount || 'Không có thông tin'}</p>
             <p><strong>Mã giao dịch:</strong> ${transactionId || 'Không có thông tin'}</p>
             <p><strong>Phương thức thanh toán:</strong> ${paymentMethod || 'Không có thông tin'}</p>
-            <p><strong>Thời gian:</strong> ${new Date().toLocaleString('vi-VN')}</p>
+            <p><strong>Thời gian:</strong> ${date || new Date().toLocaleString('vi-VN')}</p>
           </div>
-          
           <p>Bạn có thể bắt đầu sử dụng các tính năng cao cấp ngay bây giờ.</p>
-          
           <div style="text-align: center;">
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}" class="button">Truy cập ngay</a>
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}" class="button">Truy cập tài khoản</a>
           </div>
-          
-          <p>Nếu bạn có bất kỳ câu hỏi nào về gói đăng ký của mình, vui lòng liên hệ với đội ngũ hỗ trợ của chúng tôi.</p>
+          <p>Nếu bạn có bất kỳ câu hỏi nào về hóa đơn hoặc gói đăng ký, vui lòng liên hệ với đội ngũ hỗ trợ của chúng tôi.</p>
         </div>
         <div class="footer">
           <p>&copy; ${new Date().getFullYear()} Quiz App. Tất cả các quyền được bảo lưu.</p>
@@ -402,13 +390,14 @@ class AuthService {
     </body>
     </html>
     `;
-
+    console.log('[AuthService] sendPasswordResetEmail called:', { email });
     await this.sendEmail({
       email,
       subject: 'Đặt lại mật khẩu Quiz App',
       message,
       html
     });
+    console.log('[AuthService] sendPasswordResetEmail sent successfully:', { email });
   }
 
   static async sendWelcomeEmail(email, name) {
@@ -553,13 +542,14 @@ class AuthService {
     </body>
     </html>
     `;
-
+    console.log('[AuthService] sendWelcomeEmail called:', { email, name });
     await this.sendEmail({
       email,
       subject: 'Chào mừng đến với Quiz App',
       message,
       html
     });
+    console.log('[AuthService] sendWelcomeEmail sent successfully:', { email });
   }
 
   static async sendSubscriptionExpiryEmail(email, name, daysLeft) {
@@ -686,13 +676,14 @@ class AuthService {
     </body>
     </html>
     `;
-
+    console.log('[AuthService] sendSubscriptionExpiryEmail called:', { email, name, daysLeft });
     await this.sendEmail({
       email,
       subject: 'Gói đăng ký của bạn sắp hết hạn',
       message,
       html
     });
+    console.log('[AuthService] sendSubscriptionExpiryEmail sent successfully:', { email });
   }
 }
 

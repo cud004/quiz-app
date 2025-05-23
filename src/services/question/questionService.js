@@ -255,7 +255,7 @@ const questionService = {
       }
     }
     
-    await question.delete();
+    await Question.findByIdAndDelete(id);
     return { message: 'Question deleted successfully' };
   },
 

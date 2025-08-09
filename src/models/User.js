@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
-const AuthService = require('../services/auth/authService');
+const AuthService = require('../services/authService');
 
 const UserSchema = new mongoose.Schema({
   name: {

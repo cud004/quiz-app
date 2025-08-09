@@ -1,4 +1,4 @@
-const Tag = require('../../models/Tag');
+const Tag = require('../models/Tag');
 
 const tagService = {
   // Lấy danh sách tags

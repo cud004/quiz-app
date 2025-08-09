@@ -1,4 +1,4 @@
-const quizAttemptService = require('../services/quiz/quizAttemptService');
+const quizAttemptService = require('../services/quizAttemptService');
 const ApiResponse = require('../utils/apiResponse');
 const QuizAttempt = require('../models/QuizAttempt');
 const Topic = require('../models/Topic');

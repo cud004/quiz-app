@@ -1,6 +1,6 @@
-const User = require('../../models/User');
-const QuizAttempt = require('../../models/QuizAttempt');
-const Exam = require('../../models/Exam');
+const User = require('../models/User');
+const QuizAttempt = require('../models/QuizAttempt');
+const Exam = require('../models/Exam');
 
 class UserService {
   // Get all users

@@ -1,4 +1,4 @@
-const imagekit = require('../../config/imagekit');
+const imagekit = require('../config/imagekit');
 
 class ImageService {
     /**

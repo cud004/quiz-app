@@ -56,7 +56,17 @@ router.put(
 // Github OAuth login
 router.get(
   "/github",
-  passport.authenticate("github", { scope: ["user:email"] })
+  (req, res, next) => {
+    // Lưu frontend URL vào state
+    const frontendUrl = req.query.frontend_url || 'http://localhost:5173';
+    const state = Buffer.from(JSON.stringify({ frontendUrl })).toString('base64');
+    req.session.oauthState = state;
+    next();
+  },
+  passport.authenticate("github", { 
+    scope: ["user:email"],
+    state: true 
+  })
 );
 
 // Github OAuth callback
@@ -67,23 +77,44 @@ router.get(
     session: false,
   }),
   async (req, res) => {
-    // Đăng nhập thành công, trả về JWT token cho FE
     const user = req.user;
     const token = jwt.sign(
       { id: user._id, email: user.email, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRE || "7d" }
     );
-    // FE có thể lấy token qua query hoặc redirect về FE kèm token
-    // Ví dụ: res.redirect(`http://localhost:3000/oauth-success?token=${token}`);
-    res.redirect(`http://localhost:5173/oauth-success?token=${token}`);
+    
+    // Lấy frontend URL từ state
+    const state = req.query.state;
+    let frontendUrl = 'http://localhost:5173';
+    
+    if (state) {
+      try {
+        const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
+        frontendUrl = decodedState.frontendUrl;
+      } catch (error) {
+        console.error('Error decoding state:', error);
+      }
+    }
+    
+    res.redirect(`${frontendUrl}/oauth-success?token=${token}`);
   }
 );
 
 // Google OAuth login
 router.get(
   "/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
+  (req, res, next) => {
+    // Lưu frontend URL vào state
+    const frontendUrl = req.query.frontend_url || 'http://localhost:5173';
+    const state = Buffer.from(JSON.stringify({ frontendUrl })).toString('base64');
+    req.session.oauthState = state;
+    next();
+  },
+  passport.authenticate("google", { 
+    scope: ["profile", "email"],
+    state: true 
+  })
 );
 
 // Google OAuth callback
@@ -100,8 +131,21 @@ router.get(
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRE || "7d" }
     );
-    // Trả token về frontend thông qua redirect
-    res.redirect(`http://localhost:5173/oauth-success?token=${token}`);
+    
+    // Lấy frontend URL từ state
+    const state = req.query.state;
+    let frontendUrl = 'http://localhost:5173';
+    
+    if (state) {
+      try {
+        const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
+        frontendUrl = decodedState.frontendUrl;
+      } catch (error) {
+        console.error('Error decoding state:', error);
+      }
+    }
+    
+    res.redirect(`${frontendUrl}/oauth-success?token=${token}`);
   }
 );
 

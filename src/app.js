@@ -5,17 +5,15 @@ const helmet = require('helmet');
 const hpp = require('hpp');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
-const { errorHandler, apiLimiter } = require('./middleware');
-const corsOptions = require('./config/cors');
 const session = require('express-session');
-const passport = require('./config/passport');
 const path = require('path');
 
+// Configuration imports
+const { errorHandler, apiLimiter } = require('./middleware');
+const corsOptions = require('./config/cors');
+const passport = require('./config/passport');
 
-// Load env vars
-require('dotenv').config();
-
-// Route files
+// Route imports
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const topicRoutes = require('./routes/topicRoutes');
@@ -30,67 +28,67 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const suggestionRoutes = require('./routes/suggestionRoutes');
 const systemAnalyticsRoutes = require('./routes/systemAnalyticsRoutes');
 const practiceRoutes = require('./routes/practiceRoutes');
-// Các cổng thanh toán được quản lý qua API chính
-
 
 const app = express();
 
-// Tin tưởng proxy (cần thiết khi sử dụng Ngrok hoặc các proxy khác)
+// Trust proxy (necessary when using Ngrok or other proxies)
 app.set('trust proxy', 1);
 
-// Body parser
-app.use(express.json());
+// Body parser middleware
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false }));
 
 // Cookie parser
 app.use(cookieParser());
 
-// Dev logging middleware
+// Development logging middleware
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Set security headers
+// Security middleware
 app.use(helmet());
 
-// Global rate limiting
+// Rate limiting
 app.use(apiLimiter);
 
-// Prevent http param pollution
+// Prevent HTTP parameter pollution
 app.use(hpp());
 
-// Enable CORS
+// CORS
 app.use(cors(corsOptions));
 
-// Compress responses
+// Compression
 app.use(compression());
 
-// Session middleware cho OAuth
+// Session middleware for OAuth
 app.use(session({
   secret: process.env.SESSION_SECRET || 'quizappsecret',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false }
+  cookie: { 
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
 }));
+
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Payment handling routes - define directly to avoid conflicts
+// Payment callback routes (defined early to avoid conflicts)
 app.get('/payment/success', (req, res) => {
-  // Chuyển hướng về frontend với tham số từ query string
   res.redirect(`/?paymentStatus=success&${new URLSearchParams(req.query).toString()}`);
 });
 
 app.get('/payment/error', (req, res) => {
-  // Chuyển hướng về frontend với tham số từ query string
   res.redirect(`/?paymentStatus=error&${new URLSearchParams(req.query).toString()}`);
 });
 
-// Important callback route for VNPay - define directly to make sure it works
+// VNPay callback routes
 app.get('/api/payments/result', require('./controllers/paymentController').handlePaymentResult);
 app.post('/api/payments/result', require('./controllers/paymentController').handlePaymentResult);
 
-// Mount API routers
+// API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/topics', topicRoutes);
@@ -99,21 +97,14 @@ app.use('/api/questions', questionRoutes);
 app.use('/api/exams', examRoutes);
 app.use('/api/quiz-attempts', quizAttemptRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/learning-analytics', learningAnalyticsRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/suggestions', suggestionRoutes);
-// Mount payment routes - tất cả các routes thanh toán đều được xử lý qua paymentRoutes
 app.use('/api/payments', paymentRoutes);
 app.use('/api/system-analytics', systemAnalyticsRoutes);
-
-// Thêm route mới
-app.use('/api/learning-analytics', learningAnalyticsRoutes);
 app.use('/api/practice', practiceRoutes);
 
-
-// Error handler
-app.use(errorHandler);
-
-// Handle 404 for API routes
+// 404 handler for API routes
 app.use('/api', (req, res) => {
   res.status(404).json({
     success: false,
@@ -121,6 +112,7 @@ app.use('/api', (req, res) => {
   });
 });
 
-// Serve React app for all other routes
+// Global error handler
+app.use(errorHandler);
 
 module.exports = app; 

@@ -10,7 +10,7 @@ const { calculateGatewayAmount } = require('../utils/paymentUtils');
 const crypto = require('crypto');
 const qs = require('qs');
 const axios = require('axios');
-const AuthService = require('./auth/authService');
+const AuthService = require('./authService');
 
 // Khởi tạo VNPay instance với cấu hình
 console.log('VNPay config:', {

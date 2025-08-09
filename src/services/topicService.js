@@ -1,5 +1,5 @@
 // src/services/topicService.js
-const Topic = require('../../models/Topic');
+const Topic = require('../models/Topic');
 
 const topicService = {
   // Lấy danh sách topics

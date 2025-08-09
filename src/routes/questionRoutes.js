@@ -14,7 +14,7 @@ const {
   getQuestionsValidation,
   importQuestionsValidation
 } = require('../validations/questionValidation');
-const questionService = require('../services/question/questionService');
+const questionService = require('../services/questionService');
 const ApiResponse = require('../utils/apiResponse');
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });

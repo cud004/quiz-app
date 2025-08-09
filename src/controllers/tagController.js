@@ -1,5 +1,5 @@
 // src/controllers/tagController.js
-const tagService = require('../services/tag/tagService');
+const tagService = require('../services/tagService');
 const ApiResponse = require('../utils/apiResponse');
 
 const tagController = {

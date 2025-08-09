@@ -1,11 +1,11 @@
 const mongoose = require('mongoose');
 const { ObjectId } = mongoose.Types;
-const QuizAttempt = require('../../models/QuizAttempt');
-const Exam = require('../../models/Exam');
-const Question = require('../../models/Question');
-const examService = require('../exam/examService');
-const UserTagStats = require('../../models/UserTagStats');
-const UserAnswer = require("../../models/UserAnswer");
+const QuizAttempt = require('../models/QuizAttempt');
+const Exam = require('../models/Exam');
+const Question = require('../models/Question');
+const examService = require('./examService');
+const UserTagStats = require('../models/UserTagStats');
+const UserAnswer = require("../models/UserAnswer");
 
 const quizAttemptService = {
   // Bắt đầu làm bài kiểm tra

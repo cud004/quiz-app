@@ -1,9 +1,9 @@
 const User = require('../models/User');
-const AuthService = require('../services/auth/authService');
+const AuthService = require('../services/authService');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const ApiResponse = require('../utils/apiResponse');
-const ImageService = require('../services/user/imageService');
+const ImageService = require('../services/imageService');
 const learningAnalyticsService = require('../services/learningAnalyticsService');
 
 // Generate JWT Token

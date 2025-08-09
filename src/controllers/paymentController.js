@@ -5,7 +5,7 @@ const momoService = require('../services/momoService');
 const ApiResponse = require('../utils/apiResponse');
 const subscriptionService = require('../services/subscriptionService');
 const Payment = require('../models/Payment');
-const AuthService = require('../services/auth/authService');
+const AuthService = require('../services/authService');
 const User = require('../models/User');
 const { 
   validatePaymentData, 
@@ -330,7 +330,7 @@ const paymentController = {
     } catch (error) {
       console.error('[PaymentController] Error handling VNPay callback:', error);
       // Redirect về FE với trạng thái lỗi
-      const redirectUrl = `http://localhost:5173/payment-result?status=error&message=${encodeURIComponent(error.message)}`;
+      const redirectUrl = `http://localhost:5173/payment-result?status=${status}&transactionId=${transactionId}&message=${message}`;
       try {
         return res.redirect(redirectUrl);
       } catch (err) {

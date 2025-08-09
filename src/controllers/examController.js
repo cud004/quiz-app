@@ -1,4 +1,4 @@
-const examService = require('../services/exam/examService');
+const examService = require('../services/examService');
 const ApiResponse = require('../utils/apiResponse');
 
 const examController = {

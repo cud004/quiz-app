@@ -1,9 +1,9 @@
-const UserService = require('../services/user/userService');
+const UserService = require('../services/userService');
 const QuizAttempt = require('../models/QuizAttempt');
 const Exam = require('../models/Exam');
 const User = require('../models/User');
 const ApiResponse = require('../utils/apiResponse');
-const ImageService = require('../services/user/imageService');
+const ImageService = require('../services/imageService');
 
 // @desc    Get all users
 // @route   GET /api/users

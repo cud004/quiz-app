@@ -14,7 +14,7 @@ const corsOptions = {
       'http://localhost:8080',
       'https://sandbox.vnpayment.vn',
       'https://ik.imagekit.io/c3dq7il1wp/',
-
+      'https://eb48-171-253-135-43.ngrok-free.app'
     ].filter(Boolean); // Loại bỏ các giá trị null/undefined
     
     // Kiểm tra xem origin có chứa ngrok không

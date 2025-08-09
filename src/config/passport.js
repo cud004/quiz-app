@@ -12,7 +12,7 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 passport.use(new GitHubStrategy({
   clientID: GITHUB_CLIENT_ID,
   clientSecret: GITHUB_CLIENT_SECRET,
-  callbackURL: '/api/auth/github/callback',
+  callbackURL: 'https://eb48-171-253-135-43.ngrok-free.app/api/auth/github/callback',
   scope: ['user:email']
 }, async (accessToken, refreshToken, profile, done) => {
   try {
@@ -44,7 +44,7 @@ passport.use(new GitHubStrategy({
 passport.use(new GoogleStrategy({
   clientID: GOOGLE_CLIENT_ID,
   clientSecret: GOOGLE_CLIENT_SECRET,
-  callbackURL: '/api/auth/google/callback'
+  callbackURL: 'https://eb48-171-253-135-43.ngrok-free.app/api/auth/google/callback'
 }, async (accessToken, refreshToken, profile, done) => {
   try {
     let user = await User.findOne({ oauthProvider: 'google', oauthId: profile.id });

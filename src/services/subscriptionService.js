@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const SubscriptionPackage = require('../models/SubscriptionPackage');
 const User = require('../models/User');
 const Payment = require('../models/Payment');
-const AuthService = require('../services/auth/authService');
+const AuthService = require('./authService');
 
 const subscriptionService = {
   /**

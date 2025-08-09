@@ -1,5 +1,5 @@
 // src/controllers/topicController.js
-const topicService = require('../services/topic/topicService');
+const topicService = require('../services/topicService');
 const ApiResponse = require('../utils/apiResponse');
 
 const topicController = {

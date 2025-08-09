@@ -244,6 +244,25 @@ class SystemAnalyticsService {
       .skip((page - 1) * limit)
       .limit(limit)
       .select('_id user totalAmount status paymentMethod createdAt');
+
+    // Tổng doanh thu theo filter
+    const totalRevenueAgg = await Payment.aggregate([
+      { $match: filter },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ]);
+    const totalRevenue = totalRevenueAgg[0]?.total || 0;
+
+    // Doanh thu theo ngày
+    const dailyRevenue = await Payment.aggregate([
+      { $match: filter },
+      { $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          total: { $sum: '$totalAmount' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
     return {
       data: payments,
       pagination: {
@@ -251,7 +270,9 @@ class SystemAnalyticsService {
         limit,
         total,
         pages: Math.ceil(total / limit)
-      }
+      },
+      totalRevenue,
+      dailyRevenue: dailyRevenue.map(item => ({ date: item._id, total: item.total }))
     };
   }
 }

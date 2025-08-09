@@ -1,10 +1,10 @@
-const Exam = require('../../models/Exam');
-const Question = require('../../models/Question');
-const Topic = require('../../models/Topic');
-const Tag = require('../../models/Tag');
+const Exam = require('../models/Exam');
+const Question = require('../models/Question');
+const Topic = require('../models/Topic');
+const Tag = require('../models/Tag');
 const mongoose = require('mongoose');
 const { ObjectId } = mongoose.Types;
-const questionService = require('../question/questionService');
+const questionService = require('./questionService');
 
 const examService = {
   // Lấy danh sách đề thi với nhiều tiêu chí tìm kiếm

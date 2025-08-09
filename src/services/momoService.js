@@ -7,7 +7,7 @@ const SubscriptionPackage = require('../models/SubscriptionPackage');
 const subscriptionService = require('./subscriptionService');
 const { calculateGatewayAmount } = require('../utils/paymentUtils');
 const paymentConfig = require('../config/payment');
-const AuthService = require('./auth/authService');
+const AuthService = require('./authService');
 
 
 /**

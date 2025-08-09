@@ -1,9 +1,9 @@
-const Question = require('../../models/Question');
-const Topic = require('../../models/Topic');
-const Tag = require('../../models/Tag');
+const Question = require('../models/Question');
+const Topic = require('../models/Topic');
+const Tag = require('../models/Tag');
 const mongoose = require('mongoose');
 const { ObjectId } = mongoose.Types;
-const { generateExplanation } = require('../ai/geminiService');
+const { generateExplanation } = require('./geminiService');
 
 const questionService = {
   // Lấy danh sách questions với nhiều tiêu chí tìm kiếm

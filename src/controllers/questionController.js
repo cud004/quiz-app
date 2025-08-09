@@ -1,6 +1,6 @@
-const questionService = require('../services/question/questionService');
+const questionService = require('../services/questionService');
 const ApiResponse = require('../utils/apiResponse');
-const { generateExplanation } = require('../services/ai/geminiService');
+const { generateExplanation } = require('../services/geminiService');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const Tag = require('../models/Tag');
